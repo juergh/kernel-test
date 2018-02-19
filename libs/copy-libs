@@ -1,0 +1,30 @@
+#!/bin/bash -eu
+#
+# Copy the dynamic libraries required by executables
+#
+
+function list_libs()
+{
+	local bin=${1}
+	local line lib
+
+	( ldd "${bin}" 2>/dev/null || true ) | \
+		while read -r line ; do
+			lib="${line% (*}"
+			lib="${lib##* }"
+			if [ -n "${lib}" ] && [ -e "${lib}" ] ; then
+				echo "$lib"
+				list_libs "${lib}"
+			fi
+		done | sort -u
+}
+
+target_dir="${1}"
+shift
+
+for path in "${@}" ; do
+	find "${path}" -maxdepth 1 -type f -executable -print0 | \
+		while IFS= read -r -d $'\0' bin ; do
+			list_libs "${bin}"
+		done
+done | sort -u | rsync --files-from=- --copy-links / "${target_dir}"

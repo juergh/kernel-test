@@ -1,0 +1,82 @@
+#!/bin/bash -eu
+
+function usage()
+{
+	cat <<EOF
+Usage: create-image [<options>] initrd
+Usage: create-image [<options>] root
+Usage: create-image [<options>] base
+Usage: create-image [<options>] test <test> [<test> <test> ...]
+
+Available options:
+  -f, --force             Force the creation of an image
+  -p, --preserve          Preserve image file after a build failure
+  -s, --series <SERIES>   Build an image for series <SERIES>
+EOF
+	exit 2
+}
+
+
+FORCE=0
+IMAGE=
+
+KT_PRESERVE=
+KT_SERIES=
+KT_TESTS=()
+
+while [ $# -gt 0 ] ; do
+	case "${1}" in
+		-f|--force)
+			FORCE=1
+			;;
+		-p|--preserve)
+			# shellcheck disable=SC2034
+			KT_PRESERVE=1
+			;;
+		-s|--series)
+			shift
+			# shellcheck disable=SC2034
+			KT_SERIES=${1}
+			;;
+		*)
+			if [ -z "${IMAGE}" ] ; then
+				IMAGE=${1}
+				if [ "${IMAGE}" = "initrd" ] || [ "${IMAGE}" = "root" ] || \
+					   [ "${IMAGE}" = "base" ] ; then
+					break
+				fi
+			elif [ "${IMAGE}" = "test" ] ; then
+				# shellcheck disable=SC2034
+				KT_TESTS=(${@})
+				break
+			else
+				usage
+			fi
+			;;
+	esac
+	shift
+done
+
+if [ -z "${IMAGE}" ] ; then
+	usage
+fi
+
+case "${IMAGE}" in
+	initrd)
+		KT_FORCE_INITRD=${FORCE}
+		;;
+	base)
+		KT_FORCE_BASE=${FORCE}
+		;;
+	root)
+		KT_FORCE_ROOT=${FORCE}
+		;;
+	test)
+		KT_FORCE_TEST=${FORCE}
+		;;
+esac
+
+# shellcheck disable=SC1091
+. libs/functions
+
+"kt_create_${IMAGE}"

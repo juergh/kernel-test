@@ -1,0 +1,9 @@
+#!/bin/bash -eu
+#
+# Run ata_id repeatedly
+#
+
+for i in $(seq 1 1000) ; do
+    echo "ata_id: ${i}"
+    ./ata_id /dev/sda >/dev/null
+done

@@ -1,0 +1,11 @@
+#!/bin/bash -eu
+
+if [ $# -ne 1 ] ; then
+	echo "Usage: login-image <image>"
+	exit 2
+fi
+
+# shellcheck disable=SC1091
+. libs/functions
+
+kt_login_image "${1}"

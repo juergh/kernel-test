@@ -1,0 +1,70 @@
+#!/bin/ash
+
+echo "Loading initrd..."
+
+# Create base directories
+for d in /sys /proc /dev /tmp /root /etc ; do
+    [ -d "${d}" ] || mkdir "${d}"
+done
+
+# Mount required pseudo filesystems
+mount -t sysfs sysfs /sys
+mount -t proc proc /proc
+mount -t devtmpfs -o nosuid,mode=0755 udev /dev
+mkdir /dev/pts
+mount -t devpts -o nosuid,mode=0620 devpts /dev/pts || true
+mount -t tmpfs -o nodev,nosuid tmpfs /tmp
+
+# Start udevd
+udevadm trigger --action=add
+udevadm settle
+
+# Create /etc/mtab
+mount > /etc/mtab
+
+# Mount the root filesystem
+cat <<EOF >/etc/fstab
+LABEL=root  /root  ext4  defaults  0  1
+EOF
+
+echo "Mounting root..."
+if ! mount -a ; then
+	# Older kernels can't handle newer ext4 features, so disable them and try
+	# to mount again.
+	for dev in $(tail -n +3 /proc/partitions | awk '{ print $4 }') ; do
+		if blkid "/dev/${dev}" | grep -q 'LABEL="root"' ; then
+			echo "Disabling features on /dev/${dev}..."
+			tune2fs -f -O ^has_journal "/dev/${dev}"
+			e2fsck -f "/dev/${dev}"
+			echo y | tune2fs -f -O ^metadata_csum "/dev/${dev}"
+			e2fsck -f "/dev/${dev}"
+			break
+		fi
+	done
+	echo "Mounting root again..."
+	mount -a
+fi
+
+# Stop udevd
+udevadm control --exit
+
+# Check for /root/init
+if ! [ -e /root/init ] ; then
+	echo "No /root/init found, dropping into an emergency shell"
+	ash
+fi
+
+# Create /etc/fstab on the root filesystem
+cat <<EOF >/root/etc/fstab
+LABEL=root  /  ext4  defaults  0  1
+EOF
+
+# Move virtual filesystems
+for d in /sys /proc /dev /tmp ; do
+    [ -d "/root/${d}" ] || mkdir "/root/${d}"
+    mount -n -o move "${d}" "/root/${d}"
+done
+
+# Chain to the new filesystem
+echo "Chaining to the new filesystem..."
+exec chroot /root /init

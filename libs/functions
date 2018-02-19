@@ -1,0 +1,510 @@
+#!/bin/bash -eu
+#
+# kernel-test function declarations
+#
+# KT_<foo> are global variables that can be accessed/set from the outside.
+# The rest are local to this file only.
+#
+
+# -----------------------------------------------------------------------------
+# Globals
+
+BUILD_DIR=${PWD}/build
+[ -d "${BUILD_DIR}" ] || mkdir -p "${BUILD_DIR}"
+
+if [ "${KT_TESTS:-xxx}" = "xxx" ] ; then
+	KT_TESTS=()
+fi
+
+if [ -z "${KT_SERIES:-}" ] ; then
+	KT_SERIES=$(lsb_release -s -c)
+fi
+
+case "${KT_SERIES}" in
+	wheezy|stretch|buster)
+		DIST="Debian"
+		SERIES="${KT_SERIES}"
+		COMPS="main,contrib"
+		ROOTFS="ext4"
+		;;
+	wheezy+ext3)
+		DIST="Debian"
+		SERIES="wheezy"
+		COMPS="main,contrib"
+		ROOTFS="ext3"
+		;;
+	*)
+		DIST="Ubuntu"
+		SERIES="${KT_SERIES}"
+		COMPS="main,universe"
+		ROOTFS="ext4"
+		;;
+esac
+
+IMAGE_MOUNT=${BUILD_DIR}/image.mnt
+IMAGE_PIDFILE=${BUILD_DIR}/image.pid
+
+ROOT_IMAGE_SIZE=1G
+BASE_IMAGE_SIZE=10G
+
+
+# -----------------------------------------------------------------------------
+# Image mount/unmount helper functions
+
+function _wait_for_guestunmount()
+{
+	local pid=${1}
+	local count
+
+    count=10
+    while kill -0 "${pid}" 2>/dev/null && [ ${count} -gt 0 ] ; do
+        sleep 1
+        ((count--))
+    done
+
+    if [ ${count} -eq 0 ] ; then
+        echo "+++ Error: wait_for_guestmount timed out after 10 seconds"
+        return 1
+    fi
+}
+
+function kt_mount_image()
+{
+	local image_file=${1}
+	local image_name image_type
+
+	if [ -e "${IMAGE_PIDFILE}" ] ; then
+		echo "+++ Error: An image is already mounted"
+		return 1
+	elif ! [ -e "${image_file}" ] ; then
+		echo "+++ Error: No such image file: ${image_file}"
+		return 1
+	fi
+
+	image_file=$(readlink -e "${image_file}")
+	image_name=${1##*/}
+	image_type=${image_name%.*}
+	image_type=${image_type%%-*}
+
+	echo "+++ Mounting ${image_type} image ${image_name}"
+
+	rm -rf "${IMAGE_MOUNT}"
+	mkdir "${IMAGE_MOUNT}"
+
+	if [ "${image_type}" = "initrd" ] ; then
+		( cd "${IMAGE_MOUNT}" && zcat "${image_file}" | \
+				  cpio --extract --quiet )
+		touch "${IMAGE_PIDFILE}"
+
+	elif [ "${image_type}" = "test" ] ; then
+		sudo mount -o loop "${image_file}" "${IMAGE_MOUNT}"
+		touch "${IMAGE_PIDFILE}"
+
+	else
+		sudo guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
+			 -m /dev/sda --rw -o dev "${IMAGE_MOUNT}"
+	fi
+}
+
+
+function kt_unmount_image()
+{
+	local image_file=${1} caller=${2:-}
+	local image_name image_type image_pid dev
+
+	if ! [ -e "${IMAGE_PIDFILE}" ] ; then
+		echo "+++ Error: No image mounted"
+		return 1
+	elif ! [ -e "${image_file}" ] ; then
+		echo "+++ Error: No such image file: ${image_file}"
+		return 1
+	fi
+
+	image_file=$(readlink -e "${image_file}")
+	image_name=${1##*/}
+	image_type=${image_name%.*}
+	image_type=${image_type%%-*}
+
+	echo "+++ Unmounting ${image_type} image ${image_name}"
+
+	if [ "${image_type}" = "initrd" ] ; then
+		( cd "${IMAGE_MOUNT}" && find . | fakeroot cpio -o -H newc | \
+				  gzip > "${image_file}" )
+		rm -f "${IMAGE_PIDFILE}"
+
+	elif [ "${image_type}" = "test" ] ; then
+		sudo umount "${IMAGE_MOUNT}"
+		rm -f "${IMAGE_PIDFILE}"
+
+	else
+		# FIXME: Figure out programatically what to unmount
+
+		# Bind-unmount
+		if [ -n "${BIND_UNMOUNT:-}" ] ; then
+			sudo umount "${BIND_UNMOUNT}" || true
+			sudo rmdir "${BIND_UNMOUNT}" || true
+			BIND_UNMOUNT=
+		fi
+
+		# Just in case
+		for dev in /dev/pts /dev /proc /sys ; do
+			sudo umount "${IMAGE_MOUNT}/${dev}" 2>/dev/null || true
+		done
+
+		image_pid=$(cat "${IMAGE_PIDFILE}")
+		sudo guestunmount "${IMAGE_MOUNT}"
+		_wait_for_guestunmount "${image_pid}"
+
+		# Why do we need this when we do the 'guestmount --pid-file' dance??
+		sleep 2
+	fi
+
+	if [ -n "${caller}" ] ; then
+		if [ "${KT_PRESERVE:-0}" -eq 0 ] ; then
+			echo "+++ Purging ${image_type} image ${image_name}"
+			rm -f "${image_file}"
+		elif [ "${KT_PRESERVE:-0}" -eq 1 ] ; then
+			echo "+++ Preserving ${image_type} image ${image_name}"
+		fi
+		echo "+++ Error: ${caller} failed"
+		return 1
+	fi
+}
+
+
+# -----------------------------------------------------------------------------
+# List the content of an image
+
+function kt_ls_image()
+{
+	local image=${1}
+
+	if ! [ -e "${image}" ] ; then
+		echo "+++ Error: No such image file: ${image}"
+		return 1
+	fi
+
+	# Mount the image, make sure it doesn't get purged on error
+	KT_PRESERVE=2
+	kt_mount_image "${image}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${image} kt_ls_image" EXIT INT TERM HUP
+
+	sudo bash -c "cd ${IMAGE_MOUNT} && sudo find . | sort"
+
+	# Unmount the image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${image}"
+}
+
+
+# -----------------------------------------------------------------------------
+# Log into an image
+
+function kt_login_image()
+{
+	local image=${1}
+	local noshell shell
+
+	if ! [ -e "${image}" ] ; then
+		echo "+++ Error: No such image file: ${image}"
+		return 1
+	fi
+
+	# Mount the image, make sure it doesn't get purged on error
+	KT_PRESERVE=2
+	kt_mount_image "${image}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${image} kt_login_image" EXIT INT TERM HUP
+
+	noshell=1
+	for shell in /bin/bash /bin/ash /bin/sh ; do
+		if sudo test -e "${IMAGE_MOUNT}/${shell}" ; then
+			noshell=0
+			sudo chroot "${IMAGE_MOUNT}" "${shell}" || true
+			break
+		fi
+	done
+	
+	# Unmount the image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${image}"
+	
+	if [ "${noshell}" -eq 1 ] ; then
+		echo "+++ Error: No shell found"
+		return 1
+	fi
+}
+
+
+# -----------------------------------------------------------------------------
+# Create an initrd image
+
+function kt_create_initrd()
+{
+	local initrd_dir=${BUILD_DIR}/initrd.d
+
+#	if [ -z "${KT_KERNEL:-}" ] ; then
+#		echo "+++ Error: No kernel specified"
+#		return 1
+#	elif ! [ -e "${KT_KERNEL}" ] ; then
+#		echo "+++ Error: No such kernel: ${KT_KERNEL}"
+#		return 1
+#	fi
+
+#	INITRD_ID=$(md5sum "${KT_KERNEL}" init/initrd.init | md5sum | \
+#					awk '{ print $1 }')
+	INITRD_ID=$(md5sum init/initrd.init | md5sum | awk '{ print $1 }')
+	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${INITRD_ID}.img
+
+	if [ -e "${KT_INITRD_IMAGE}" ] ; then
+		if [ "${KT_FORCE_INITRD:-0}" -eq 0 ] ; then
+			echo "+++ Using existing initrd image ${KT_INITRD_IMAGE##*/}"
+			return 0
+		else
+			rm -f "${KT_INITRD_IMAGE}"
+		fi
+	fi
+
+	# Create the base image if necessary
+	kt_create_base
+
+	# Mount the base image, make sure it doesn't get purged on error
+	KT_PRESERVE=2
+	kt_mount_image "${KT_BASE_IMAGE}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_initrd" EXIT INT TERM HUP
+
+	# Create the initrd
+	echo "+++ Creating initrd image ${KT_INITRD_IMAGE##*/}"
+
+	# Create the base initrd directory tree
+	rm -rf "${initrd_dir}"
+	mkdir -p "${initrd_dir}"{/usr/sbin/,/usr/bin/,/sbin/,/bin/,/etc}
+
+	# Customization
+	echo "initrd-image" > "${initrd_dir}/etc/debian_chroot"
+
+	# Copy the initrd init and helper scripts
+	cp init/initrd.init "${initrd_dir}/init"
+	cp libs/copy-libs "${initrd_dir}/bin"
+
+	# Copy the required binaries
+	for bin in /bin/busybox /bin/udevadm /sbin/udevadm /sbin/e2fsck \
+							/sbin/blkid /sbin/tune2fs ; do
+		if sudo test -e "${IMAGE_MOUNT}/${bin}" ; then
+			sudo cp "${IMAGE_MOUNT}/${bin}" "${initrd_dir}/${bin}"
+		fi
+	done
+
+	# Bind-mount the initrd directory into the base image
+	sudo mkdir -p "${IMAGE_MOUNT}/tmp/initrd.d"
+	sudo mount --bind "${initrd_dir}" "${IMAGE_MOUNT}/tmp/initrd.d"
+	BIND_UNMOUNT="${IMAGE_MOUNT}/tmp/initrd.d"
+
+	# Copy the required dynamic libraries
+	sudo chroot "${IMAGE_MOUNT}" /tmp/initrd.d/bin/copy-libs \
+		 /tmp/initrd.d/ tmp/initrd.d/bin/ /tmp/initrd.d/sbin/
+
+	# Create the busybox symlinks
+	sudo chroot "${IMAGE_MOUNT}" /bin/busybox --install -s "/tmp/initrd.d/bin"
+
+	# Fix the ownership
+	sudo chown -R "$(id -u):$(id -g)" "${initrd_dir}/"
+	
+	# Bind-unmount the initrd directory
+	sudo umount "${BIND_UNMOUNT}"
+	sudo rmdir "${BIND_UNMOUNT}"
+	BIND_UNMOUNT=
+	
+	# Unmount the base image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${KT_BASE_IMAGE}"
+
+	# Finally create the initrd
+	( cd "${initrd_dir}" && find . | fakeroot cpio -o -H newc | \
+		gzip > "${KT_INITRD_IMAGE}" )
+}
+
+
+# -----------------------------------------------------------------------------
+# Create a root image
+
+function kt_create_root()
+{
+#	local package
+
+	ROOT_IMAGE=${BUILD_DIR}/root-${KT_SERIES}.img
+
+	if [ -e "${ROOT_IMAGE}" ] ; then
+		if [ "${KT_FORCE_ROOT:-0}" -eq 0 ] ; then
+			echo "+++ Using existing root image ${ROOT_IMAGE##*/}"
+			return 0
+		else
+			rm -f "${ROOT_IMAGE}"
+		fi
+	fi
+		
+	# Create the root image and filesystem
+	echo "+++ Creating root image ${ROOT_IMAGE##*/}"
+	qemu-img create -f raw "${ROOT_IMAGE}" "${ROOT_IMAGE_SIZE}"
+	/sbin/mkfs.${ROOTFS} -F -L root "${ROOT_IMAGE}"
+
+	# Mount the image
+	kt_mount_image "${ROOT_IMAGE}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${ROOT_IMAGE} kt_create_root" EXIT INT TERM HUP
+
+	# Install Ubuntu/Debian
+	echo "+++ Installing ${DIST} (${SERIES})"
+	sudo debootstrap \
+		 --components="${COMPS}" \
+		 --include=busybox,lsb-release,rsync \
+		 "${SERIES}" "${IMAGE_MOUNT}"
+
+	# Clean the apt cache
+	sudo chroot "${IMAGE_MOUNT}" apt-get clean
+	
+	# Customization
+	echo "root-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
+							 >/dev/null
+	echo "kernel-test" | sudo tee "${IMAGE_MOUNT}/etc/hostname" >/dev/null
+	cat <<EOF | sudo tee "${IMAGE_MOUNT}/etc/hosts" >/dev/null
+127.0.0.1   localhost
+127.0.1.1   kernel-test
+EOF
+
+	# Unmount the image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${ROOT_IMAGE}"
+
+	# Convert the raw image to qcow2
+	qemu-img convert -f raw -O qcow2 "${ROOT_IMAGE}" "${ROOT_IMAGE}.tmp"
+	mv "${ROOT_IMAGE}.tmp"  "${ROOT_IMAGE}"
+}
+
+
+# -----------------------------------------------------------------------------
+# Create a base image
+
+function kt_create_base()
+{
+	BASE_IMAGE_ID=$(md5sum init/base.init | awk '{ print $1 }')
+	KT_BASE_IMAGE=${BUILD_DIR}/base-${KT_SERIES}-${BASE_IMAGE_ID}.img
+
+	if [ -e "${KT_BASE_IMAGE}" ] ; then
+		if [ "${KT_FORCE_BASE:-0}" -eq 0 ] ; then
+			echo "+++ Using existing base image ${KT_BASE_IMAGE##*/}"
+			return 0
+		else
+			rm -f "${KT_BASE_IMAGE}"
+		fi
+	fi
+
+	# Create the root image if necessary
+	kt_create_root
+
+	# Create the base image
+	echo "+++ Creating base image ${KT_BASE_IMAGE##*/}"
+	qemu-img create -f qcow2 -o backing_file="${ROOT_IMAGE}" "${KT_BASE_IMAGE}"
+	qemu-img resize -f qcow2 "${KT_BASE_IMAGE}" "${BASE_IMAGE_SIZE}"
+
+	# Resize the root filesystem
+	echo "+++ Resizing root filesystem"
+	sudo guestfish add "${KT_BASE_IMAGE}" : run : resize2fs /dev/sda
+
+	# Mount the image
+	kt_mount_image "${KT_BASE_IMAGE}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_test" EXIT INT TERM HUP
+
+	# Customization
+	echo "base-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
+							 >/dev/null
+
+	# Install the initrd
+	sudo cp init/base.init "${IMAGE_MOUNT}/init"
+
+	# Pre-seed and install kexec-tools
+#	sudo chroot "${IMAGE_MOUNT}" \
+#		bash -c "echo kexec-tools kexec-tools/load_kexec boolean false | \
+#			debconf-set-selections && apt install kexec-tools"
+
+	# Install additional packages (that might not be available in the selected
+	# series)
+#	for package in stress-ng ; do
+#		sudo chroot "${IMAGE_MOUNT}" apt-get -y install "${package}" \
+#			 2>/dev/null || true
+#	done
+
+	# Unmount the image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${KT_BASE_IMAGE}"
+}
+
+
+# -----------------------------------------------------------------------------
+# Create a test image
+
+function kt_create_test()
+{
+	local test_dir=${BUILD_DIR}/test.d
+	local test_files test_name
+
+	if [ "${#KT_TESTS[@]}" -eq 0 ] ; then
+		echo "+++ Error: No test(s) specified"
+		return 1
+	fi
+
+	# Verify that the tests exist
+	test_files=()
+	for test_name in "${KT_TESTS[@]}" ; do
+		if [ -e "tests/${test_name}.test" ] ; then
+			test_files=("tests/${test_name}.test")
+		else
+			echo "+++ Error: No such test: ${test_name}"
+			return 1
+		fi
+	done
+
+	TEST_ID=$(md5sum "${test_files[*]}" | md5sum | awk '{ print $1 }')
+	KT_TEST_IMAGE=${BUILD_DIR}/test-${TEST_ID}.img
+
+	if [ -e "${KT_TEST_IMAGE}" ] ; then
+		if [ "${KT_FORCE_TEST:-0}" -eq 0 ] ; then
+			echo "+++ Using existing test image ${KT_TEST_IMAGE##*/}"
+			return 0
+		else
+			rm -f "${KT_TEST_IMAGE}"
+		fi
+	fi
+
+	echo "+++ Creating test image ${KT_TEST_IMAGE##*/}"
+
+	rm -rf "${test_dir}"
+	mkdir "${test_dir}"
+
+	# Create the list of tests to execute
+	rm -f  "${test_dir}/tests"
+	echo "${KT_TESTS[@]}" | tr ' ' '\n' | sudo tee -a "${test_dir}/tests" \
+											   >/dev/null
+
+	# Copy the tests
+	for test_name in "${KT_TESTS[@]}" ; do
+		mkdir "${test_dir}/${test_name}"
+		cp "tests/${test_name}.test" "${test_dir}/${test_name}"
+		if [ -d "tests/${test_name}" ] ; then
+			make -C "tests/${test_name}" DESTDIR="${test_dir}/${test_name}" \
+				 install
+		fi
+	done
+
+	genisoimage -ldots -allow-lowercase -allow-multidot -l -J -r \
+				-input-charset default -V "test" -o "${KT_TEST_IMAGE}" \
+				"${test_dir}"
+}

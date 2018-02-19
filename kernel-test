@@ -1,0 +1,185 @@
+#!/bin/bash -eu
+#
+#
+#
+
+
+function out()
+{
+	local rc=${?}
+	local failed=() passed=()
+
+	trap - EXIT INT TERM HUP
+
+	# Check the logfile for test results
+	if [ -e "${LOG_FILE}" ] ; then
+		echo "+++ Logfile: ${LOG_FILE}"
+
+		for TEST in "${KT_TESTS[@]}" ; do
+			if grep "TEST RESULT (${TEST}): " "${LOG_FILE}" | \
+					grep -q PASS  ; then
+				passed+=(${TEST})
+			else
+				failed+=(${TEST})
+			fi
+		done
+
+		# List the tests that passed
+		if [ "${#passed[@]}" -gt 0 ] ; then
+			echo -e "\e[92m+++ Tests that passed: ${passed[*]}\e[0m"
+		fi
+
+		# List the tests that failed
+		if [ "${#failed[@]}" -gt 0 ] ; then
+			echo -e "\e[91m+++ Tests that failed: ${failed[*]}\e[0m" >&2
+			rc=1
+		fi
+	fi
+
+	# Print the overall test result
+	if [ ${rc} -eq 0 ] ; then
+		echo -e "\e[92m+++ SUCCESS: Tests passed\e[0m"
+	else
+		echo -e "\e[91m+++ FAILURE: Tests failed\e[0m" >&2
+	fi
+
+	exit ${rc}
+}
+
+
+function die()
+{
+	echo -e "\e[91m+++ ERROR: ${*}\e[0m" >&2
+	exit 1
+}
+
+
+function usage()
+{
+    cat <<EOF
+Usage: kernel-test [<options>] <test> [<test> <test> ...]
+
+Available options:
+  -c, --cmdline <CMDLINE>   Use kernel commandline <CMDLINE> for the tests
+  -d, --debug               Open a gdbserver on localhost:4001
+  -f, --force               Force a rebuild of all images
+  -fi                       Force a rebuild of the initrd image
+  -fr                       Force a rebuild of the root image
+  -fb                       Force a rebuild of the base image
+  -ft                       Force a rebuild of the test image
+  -h, --help                Show this help text
+  -k, --kernel <KERNEL>     Use kernel <KERNEL> for the tests
+  -p, --preserve            Preserve images after a build failure
+  -s, --series <SERIES>     Use series <SERIES> for the tests
+  -v, --verbose             Increase verbosity (set -x)
+EOF
+}
+
+
+# -----------------------------------------------------------------------------
+# Main entry point
+
+QEMU_OPTS=()
+
+# Parse the commandline arguments
+while [ $# -gt 0 ] ; do
+	case "${1}" in
+		-c|--cmdline)
+			shift
+			KT_KERNEL_CMDLINE=${1}
+			;;
+		-d|--debug)
+			QEMU_OPTS+=(--gdb tcp:localhost:4001)
+			;;
+		-f|--force)
+			# shellcheck disable=SC2034
+			KT_FORCE_INITRD=1
+			KT_FORCE_ROOT=1
+			KT_FORCE_BASE=1
+			KT_FORCE_TEST=1
+			;;
+		-fi)
+			# shellcheck disable=SC2034
+			KT_FORCE_INITRD=1
+			;;
+		-fr)
+			# shellcheck disable=SC2034
+			KT_FORCE_ROOT=1
+			;;
+		-fb)
+			# shellcheck disable=SC2034
+			KT_FORCE_BASE=1
+			;;
+		-ft)
+			# shellcheck disable=SC2034
+			KT_FORCE_TEST=1
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		-k|--kernel)
+			shift
+			KT_KERNEL=${1}
+			;;
+		-p|--preserve)
+			# shellcheck disable=SC2034
+			KT_PRESERVE=1
+			;;
+		-s|--series)
+			shift
+			# shellcheck disable=SC2034
+			KT_SERIES=${1}
+			;;
+		-v|--verbose)
+			set -x
+			;;
+		-*)
+			die "Invalid option: ${1}"
+			;;
+		*)
+			KT_TESTS=(${@})
+			break
+			;;
+	esac
+	shift
+done
+
+# shellcheck disable=SC1091
+. libs/functions
+
+LOG_DIR=logs
+LOG_FILE=${LOG_DIR}/${KT_SERIES}.log
+
+[ -d "${LOG_DIR}" ] || mkdir "${LOG_DIR}"
+rm -f "${LOG_FILE}"
+
+trap out EXIT INT TERM HUP
+
+{
+	# Create the base, initrd and test images
+	kt_create_base
+	kt_create_initrd
+	kt_create_test
+
+	# Create a fresh throw-away base image
+	qemu-img create -f qcow2 -o backing_file="${KT_BASE_IMAGE}" build/base.img
+
+	# Run the test(s)
+	qemu-system-x86_64 \
+		-nographic \
+		-machine accel=kvm \
+		-cpu "${KT_QEMU_CPU:-qemu64}" \
+		-smp "${KT_QEMU_SMP:-1}" \
+		-m "${KT_QEMU_MEM:-1024}" \
+		-kernel "${KT_KERNEL}" \
+		-append "earlyprintk=ttyS0 console=ttyS0 ${KT_KERNEL_CMDLINE:-}" \
+		-initrd "${KT_INITRD_IMAGE}" \
+		-drive file=build/base.img,if=none,format=qcow2,id=drive-image0 \
+		-device "${QEMU_DISK_DEVICE:-ide-hd}",drive=drive-image0 \
+		-drive file="${KT_TEST_IMAGE}",if=none,id=drive-image1,readonly=on \
+		-device "${QEMU_DISK_DEVICE:-ide-cd}",drive=drive-image1 \
+		-monitor tcp:localhost:4000,server,nowait \
+		"${QEMU_OPTS[@]}"
+
+} 2>&1 | tee "${LOG_FILE}"
