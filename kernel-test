@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 #
-#
+# Run kernel tests in QEMU/KVM
 #
 
 
@@ -61,7 +61,7 @@ Usage: kernel-test [<options>] <test> [<test> <test> ...]
 
 Available options:
   -c, --cmdline <CMDLINE>   Use kernel commandline <CMDLINE> for the tests
-  -d, --debug               Open a gdbserver on localhost:4001
+  -d, --debug               Open a gdbserver on localhost:4002
   -f, --force               Force a rebuild of all images
   -fi                       Force a rebuild of the initrd image
   -fr                       Force a rebuild of the root image
@@ -89,7 +89,7 @@ while [ $# -gt 0 ] ; do
 			KT_KERNEL_CMDLINE=${1}
 			;;
 		-d|--debug)
-			QEMU_OPTS+=(--gdb tcp:localhost:4001)
+			QEMU_OPTS+=(-gdb tcp:localhost:4002)
 			;;
 		-f|--force)
 			# shellcheck disable=SC2034
@@ -162,23 +162,25 @@ trap out EXIT INT TERM HUP
 	kt_create_initrd
 	kt_create_test
 
-	# Create a fresh throw-away base image
+	# Create a clean throw-away base image
 	qemu-img create -f qcow2 -o backing_file="${KT_BASE_IMAGE}" build/base.img
 
 	# Run the test(s)
 	qemu-system-x86_64 \
-		-nographic \
 		-machine accel=kvm \
 		-cpu "${KT_QEMU_CPU:-qemu64}" \
 		-smp "${KT_QEMU_SMP:-1}" \
 		-m "${KT_QEMU_MEM:-1024}" \
 		-kernel "${KT_KERNEL}" \
-		-append "earlyprintk=ttyS0 console=ttyS0 ${KT_KERNEL_CMDLINE:-}" \
+		-append "earlyprintk=ttyS0 console=ttyS0 kgdboc=ttyS1 ${KT_KERNEL_CMDLINE:-}" \
 		-initrd "${KT_INITRD_IMAGE}" \
 		-drive file=build/base.img,if=none,format=qcow2,id=drive-image0 \
 		-device "${QEMU_DISK_DEVICE:-ide-hd}",drive=drive-image0 \
 		-drive file="${KT_TEST_IMAGE}",if=none,id=drive-image1,readonly=on \
 		-device "${QEMU_DISK_DEVICE:-ide-cd}",drive=drive-image1 \
+		-display none \
+		-serial stdio \
+		-serial tcp:localhost:4001,server,nowait \
 		-monitor tcp:localhost:4000,server,nowait \
 		"${QEMU_OPTS[@]}"
 
