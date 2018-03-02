@@ -1,0 +1,176 @@
+#!/bin/bash -eu
+
+function print_info()
+{
+	if [ "${1:-}" = "-n" ] ; then
+		shift
+		echo -n -e "\e[33m${*}\e[0m"
+	else
+		echo -e "\e[33m${*}\e[0m"
+	fi
+}
+
+function duration()
+{
+	local runtime=${1}
+	local hrs=$((runtime / 3600))
+	local min=$(((runtime % 3600) / 60))
+	local sec=$((runtime % 60))
+
+	printf "%02d:%02d:%02d [hh:mm:ss]" "${hrs}" "${min}" "${sec}"
+}
+
+function print_header()
+{
+	echo
+	print_info -n "=== ${1} "
+	print_info "$(printf "%0.s=" $(seq 1 $((120 - ${#1}))))"
+	echo
+}
+
+function poweroff()
+{
+	print_header "POWERING OFF" 
+	echo 3 > /proc/sys/vm/drop_caches
+	sync
+	mount -o remount,ro /
+	echo o > /proc/sysrq-trigger
+
+	# Wait for the poweroff to happen to prevent:
+	# Kernel panic - not syncing: Attempted to kill init!
+	sleep 5
+}
+
+function print_system_info()
+{
+	print_header "SYSTEM INFO"
+
+	lsb_release -a
+	echo "--------"
+
+	cat /proc/cpuinfo
+	echo "--------"
+
+	echo -n "kernel         : "
+	uname -a
+	echo -n "kernel cmdline : "
+	cat /proc/cmdline
+}
+
+
+function run_test()
+{
+	local test_name=${1}
+	local test_count=${2}
+	local test_begin test_end test_result
+
+	print_header "RUNNING TEST: ${test_name} (${test_count})"
+
+	test_begin=$(date +%s)
+
+	test_result="\e[92mPASS\e[0m"
+	cd "/test/${test_name}" && eval "./${test_name}.test" || \
+			test_result="\e[91mFAIL\e[0m"
+
+	test_end=$(date +%s)
+
+	print_info "=== TEST RESULT: ${test_name} (${test_count}) ${test_result}"
+	print_info "=== TEST DURATION: $(duration $((test_end - test_begin)))"
+}
+
+function run_test_loop()
+{
+	local test_name=${1}
+	local test_loop=${2}
+	local test_count
+
+	if [ "${test_loop}" -lt 0 ] ; then
+		# Infinite loop
+		test_count=1
+		while true ; do
+			run_test "${test_name}" "${test_count}"
+			test_count=$((test_count + 1))
+		done
+	else
+		for test_count in $(seq 1 "${test_loop}") ; do
+			run_test "${test_name}" "${test_count}"
+		done
+	fi
+}
+
+function run_test_time()
+{
+	local test_name=${1}
+	local test_timeout=${2}
+	local test_end test_count
+
+	test_end=$(($(date +%s) + test_timeout))
+
+	test_count=1
+	while [ "$(date +%s)" -le "${test_end}" ] ; do
+		run_test "${test_name}" "${test_count}"
+		test_count=$((test_count + 1))
+	done
+}
+
+print_header "RUNNING INIT"
+
+trap poweroff EXIT INT TERM HUP
+
+# Set the hostname
+hostname -F /etc/hostname
+
+# Hack to cache the 'test' label
+lsblk | tail -n +2 | \
+	while read -r dev ; do
+		blkid "${dev%% *}" >/dev/null 2>/dev/null || true
+	done
+
+# Mount the test image
+cat <<EOF >>/etc/fstab
+LABEL=test  /test  iso9660  defaults  0  0
+EOF
+mkdir /test
+mount -a
+
+# Check the presence of the test list and test env files
+if ! [ -e "/test/tests" ] || ! [ -e "/test/tests.env" ] ; then
+	echo "+++ No such file(s): /test/tests and/or /test/tests.env"
+	exit 1
+fi
+
+# shellcheck disable=SC2002
+tests=$(cat /test/tests | tr '\n' ' ')
+
+# shellcheck disable=SC1091
+.  "/test/tests.env"
+
+# Print some info
+print_system_info
+
+# Run the tests
+if [ "${TIMEOUT}" -gt 0  ] ; then
+	if [ "${PARALLEL}" -eq 1 ] ; then
+		for test_name in ${tests} ; do
+			run_test_time "${test_name}" "${TIMEOUT}" &
+		done
+		wait
+	else
+		for test_name in ${tests} ; do
+			run_test_time "${test_name}" "${TIMEOUT}"
+		done
+	fi
+else
+	if [ "${PARALLEL}" -eq 1 ] ; then
+		for test_name in ${tests} ; do
+			run_test_loop "${test_name}" "${LOOP_COUNT}" &
+		done
+		wait
+	else
+		for test_name in ${tests} ; do
+			run_test_loop "${test_name}" "${LOOP_COUNT}"
+		done
+	fi
+fi
+
+sleep 1

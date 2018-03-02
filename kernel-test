@@ -16,7 +16,7 @@ function out()
 		echo "+++ Logfile: ${LOG_FILE}"
 
 		for TEST in "${KT_TESTS[@]}" ; do
-			if grep "TEST RESULT (${TEST}): " "${LOG_FILE}" | \
+			if grep "TEST RESULT: ${TEST} " "${LOG_FILE}" | \
 					grep -q PASS  ; then
 				passed+=(${TEST})
 			else
@@ -57,21 +57,34 @@ function die()
 function usage()
 {
     cat <<EOF
-Usage: kernel-test [<options>] <test> [<test> <test> ...]
+Usage: kernel-test [<options>] -k <KERNEL> -t <TEST>[,<TEST>,<TEST>...]
 
 Available options:
   -c, --cmdline <CMDLINE>   Use kernel commandline <CMDLINE> for the tests
-  -d, --debug               Open a gdbserver on localhost:4002
+  -e, --keep                Keep images after a build failure
   -f, --force               Force a rebuild of all images
   -fi                       Force a rebuild of the initrd image
   -fr                       Force a rebuild of the root image
   -fb                       Force a rebuild of the base image
   -ft                       Force a rebuild of the test image
+  -g, --gdb <DEBUGGER>      Enable GDB debugging:
+                            <DEBUGGER>=kgdb: Enable KGDB and connect it to
+                                             localhost:4001
+                            <DEBUGGER>=qemu: Open a QEMU gdbserver on
+                                             localhost:4002
   -h, --help                Show this help text
   -k, --kernel <KERNEL>     Use kernel <KERNEL> for the tests
-  -p, --preserve            Preserve images after a build failure
+  -l, --loop <COUNT>        Run each test <COUNT> times
+  -o, --timeout <SECONDS>   Run each test for <SECONDS> seconds
+  -p, --parallel            Run tests in parallel
   -s, --series <SERIES>     Use series <SERIES> for the tests
+  -t, --tests <TEST>[,<TEST>,<TEST>...]
+                            Run the comma-separated list of tests
+                            <TEST>[,<TEST>,<TEST>...]
   -v, --verbose             Increase verbosity (set -x)
+
+QEMU options:
+  -qS   Do not start CPU at startup (-S)
 EOF
 }
 
@@ -80,16 +93,18 @@ EOF
 # Main entry point
 
 QEMU_OPTS=()
+QEMU_CMDLINE=()
 
 # Parse the commandline arguments
 while [ $# -gt 0 ] ; do
 	case "${1}" in
 		-c|--cmdline)
 			shift
-			KT_KERNEL_CMDLINE=${1}
+			QEMU_CMDLINE+=(${1})
 			;;
-		-d|--debug)
-			QEMU_OPTS+=(-gdb tcp:localhost:4002)
+		-e|--keep)
+			# shellcheck disable=SC2034
+			KT_KEEP=1
 			;;
 		-f|--force)
 			# shellcheck disable=SC2034
@@ -114,6 +129,22 @@ while [ $# -gt 0 ] ; do
 			# shellcheck disable=SC2034
 			KT_FORCE_TEST=1
 			;;
+		-g|--gdb)
+			shift
+			case "${1}" in
+				kgdb)
+					QEMU_OPTS+=("-serial" "tcp:localhost:4001,server,nowait")
+					QEMU_CMDLINE+=("kgdboc=ttyS1")
+					;;
+				qemu)
+					QEMU_OPTS+=("-gdb" "tcp:localhost:4002")
+					;;
+				*)
+					die "Invalid gdb debugger option: ${1}"
+					;;
+			esac
+
+			;;
 		-h|--help)
 			usage
 			exit 0
@@ -122,14 +153,35 @@ while [ $# -gt 0 ] ; do
 			shift
 			KT_KERNEL=${1}
 			;;
-		-p|--preserve)
+		-l|--loop)
+			shift
 			# shellcheck disable=SC2034
-			KT_PRESERVE=1
+			KT_LOOP_COUNT=${1}
+			KT_FORCE_TEST=1
+			;;
+		-o|--timeout)
+			shift
+			# shellcheck disable=SC2034
+			KT_TIMEOUT=${1}
+			KT_FORCE_TEST=1
+			;;
+		-p|--parallel)
+			# shellcheck disable=SC2034
+			KT_PARALLEL=1
+			KT_FORCE_TEST=1
+			;;
+		-qS)
+			QEMU_OPTS+=(-S)
 			;;
 		-s|--series)
 			shift
 			# shellcheck disable=SC2034
 			KT_SERIES=${1}
+			;;
+		-t|--tests)
+			shift
+			# shellcheck disable=SC2034
+			IFS=',' read -r -a KT_TESTS <<< "${1}"
 			;;
 		-v|--verbose)
 			set -x
@@ -138,12 +190,17 @@ while [ $# -gt 0 ] ; do
 			die "Invalid option: ${1}"
 			;;
 		*)
-			KT_TESTS=(${@})
-			break
+			usage
+			exit 2
 			;;
 	esac
 	shift
 done
+
+if [ -z "${KT_KERNEL:-}" ] || [ -z "${KT_TESTS:-}" ] ; then
+	usage
+	exit 2
+fi
 
 # shellcheck disable=SC1091
 . libs/functions
@@ -172,7 +229,7 @@ trap out EXIT INT TERM HUP
 		-smp "${KT_QEMU_SMP:-1}" \
 		-m "${KT_QEMU_MEM:-1024}" \
 		-kernel "${KT_KERNEL}" \
-		-append "earlyprintk=ttyS0 console=ttyS0 kgdboc=ttyS1 ${KT_KERNEL_CMDLINE:-}" \
+		-append "earlyprintk=ttyS0 console=ttyS0 ${QEMU_CMDLINE[*]} ${KT_KERNEL_CMDLINE:-}" \
 		-initrd "${KT_INITRD_IMAGE}" \
 		-drive file=build/base.img,if=none,format=qcow2,id=drive-image0 \
 		-device "${QEMU_DISK_DEVICE:-ide-hd}",drive=drive-image0 \
@@ -180,7 +237,6 @@ trap out EXIT INT TERM HUP
 		-device "${QEMU_DISK_DEVICE:-ide-cd}",drive=drive-image1 \
 		-display none \
 		-serial stdio \
-		-serial tcp:localhost:4001,server,nowait \
 		-monitor tcp:localhost:4000,server,nowait \
 		"${QEMU_OPTS[@]}"
 

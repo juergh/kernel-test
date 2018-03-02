@@ -160,11 +160,11 @@ function kt_unmount_image()
 	fi
 
 	if [ -n "${caller}" ] ; then
-		if [ "${KT_PRESERVE:-0}" -eq 0 ] ; then
+		if [ "${KT_KEEP:-0}" -eq 0 ] ; then
 			echo "+++ Purging ${image_type} image ${image_name}"
 			rm -f "${image_file}"
-		elif [ "${KT_PRESERVE:-0}" -eq 1 ] ; then
-			echo "+++ Preserving ${image_type} image ${image_name}"
+		elif [ "${KT_KEEP:-0}" -eq 1 ] ; then
+			echo "+++ Keeping ${image_type} image ${image_name}"
 		fi
 		echo "+++ Error: ${caller} failed"
 		return 1
@@ -185,7 +185,7 @@ function kt_ls_image()
 	fi
 
 	# Mount the image, make sure it doesn't get purged on error
-	KT_PRESERVE=2
+	KT_KEEP=2
 	kt_mount_image "${image}"
 	# shellcheck disable=SC2064
 	trap "kt_unmount_image ${image} kt_ls_image" EXIT INT TERM HUP
@@ -213,7 +213,7 @@ function kt_login_image()
 	fi
 
 	# Mount the image, make sure it doesn't get purged on error
-	KT_PRESERVE=2
+	KT_KEEP=2
 	kt_mount_image "${image}"
 	# shellcheck disable=SC2064
 	trap "kt_unmount_image ${image} kt_login_image" EXIT INT TERM HUP
@@ -254,9 +254,9 @@ function kt_create_initrd()
 #		return 1
 #	fi
 
-#	INITRD_ID=$(md5sum "${KT_KERNEL}" init/initrd.init | md5sum | \
+#	INITRD_ID=$(md5sum "${KT_KERNEL}" libs/initrd.init | md5sum | \
 #					awk '{ print $1 }')
-	INITRD_ID=$(md5sum init/initrd.init | md5sum | awk '{ print $1 }')
+	INITRD_ID=$(md5sum libs/initrd.init | md5sum | awk '{ print $1 }')
 	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${INITRD_ID}.img
 
 	if [ -e "${KT_INITRD_IMAGE}" ] ; then
@@ -272,7 +272,7 @@ function kt_create_initrd()
 	kt_create_base
 
 	# Mount the base image, make sure it doesn't get purged on error
-	KT_PRESERVE=2
+	KT_KEEP=2
 	kt_mount_image "${KT_BASE_IMAGE}"
 	# shellcheck disable=SC2064
 	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_initrd" EXIT INT TERM HUP
@@ -288,7 +288,7 @@ function kt_create_initrd()
 	echo "initrd-image" > "${initrd_dir}/etc/debian_chroot"
 
 	# Copy the initrd init and helper scripts
-	cp init/initrd.init "${initrd_dir}/init"
+	cp libs/initrd.init "${initrd_dir}/init"
 	cp libs/copy-libs "${initrd_dir}/bin"
 
 	# Copy the required binaries
@@ -365,6 +365,10 @@ function kt_create_root()
 		 --include=busybox,lsb-release,rsync \
 		 "${SERIES}" "${IMAGE_MOUNT}"
 
+	# Install 32-bit libraries
+#	sudo chroot "${IMAGE_MOUNT}" "dpkg --add-architecture i386 ; \
+#		 apt-get update"
+
 	# Clean the apt cache
 	sudo chroot "${IMAGE_MOUNT}" apt-get clean
 	
@@ -393,7 +397,7 @@ EOF
 
 function kt_create_base()
 {
-	BASE_IMAGE_ID=$(md5sum init/base.init | awk '{ print $1 }')
+	BASE_IMAGE_ID=$(md5sum libs/base.init | awk '{ print $1 }')
 	KT_BASE_IMAGE=${BUILD_DIR}/base-${KT_SERIES}-${BASE_IMAGE_ID}.img
 
 	if [ -e "${KT_BASE_IMAGE}" ] ; then
@@ -420,14 +424,14 @@ function kt_create_base()
 	# Mount the image
 	kt_mount_image "${KT_BASE_IMAGE}"
 	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_test" EXIT INT TERM HUP
+	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_base_test" EXIT INT TERM HUP
 
 	# Customization
 	echo "base-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
 							 >/dev/null
 
 	# Install the initrd
-	sudo cp init/base.init "${IMAGE_MOUNT}/init"
+	sudo cp libs/base.init "${IMAGE_MOUNT}/init"
 
 	# Pre-seed and install kexec-tools
 #	sudo chroot "${IMAGE_MOUNT}" \
@@ -465,14 +469,14 @@ function kt_create_test()
 	test_files=()
 	for test_name in "${KT_TESTS[@]}" ; do
 		if [ -e "tests/${test_name}.test" ] ; then
-			test_files=("tests/${test_name}.test")
+			test_files+=("tests/${test_name}.test")
 		else
 			echo "+++ Error: No such test: ${test_name}"
 			return 1
 		fi
 	done
 
-	TEST_ID=$(md5sum "${test_files[*]}" | md5sum | awk '{ print $1 }')
+	TEST_ID=$(md5sum "${test_files[@]}" | md5sum | awk '{ print $1 }')
 	KT_TEST_IMAGE=${BUILD_DIR}/test-${TEST_ID}.img
 
 	if [ -e "${KT_TEST_IMAGE}" ] ; then
@@ -490,17 +494,25 @@ function kt_create_test()
 	mkdir "${test_dir}"
 
 	# Create the list of tests to execute
-	rm -f  "${test_dir}/tests"
-	echo "${KT_TESTS[@]}" | tr ' ' '\n' | sudo tee -a "${test_dir}/tests" \
-											   >/dev/null
+	echo "${KT_TESTS[@]}" | tr ' ' '\n' | \
+		sudo tee "${test_dir}/tests" >/dev/null
+
+	# Create the test env file
+	cat <<EOF | sudo tee  "${test_dir}/tests.env" >/dev/null
+LOOP_COUNT=${KT_LOOP_COUNT:-1}
+PARALLEL=${KT_PARALLEL:-0}
+TIMEOUT=${KT_TIMEOUT:-0}
+EOF
 
 	# Copy the tests
 	for test_name in "${KT_TESTS[@]}" ; do
 		mkdir "${test_dir}/${test_name}"
 		cp "tests/${test_name}.test" "${test_dir}/${test_name}"
-		if [ -d "tests/${test_name}" ] ; then
+		if [ -e "tests/${test_name}/Makefile" ] ; then
 			make -C "tests/${test_name}" DESTDIR="${test_dir}/${test_name}" \
 				 install
+		elif [ -d "tests/${test_name}" ] ; then
+			cp "tests/${test_name}"/* "${test_dir}/${test_name}"
 		fi
 	done
 

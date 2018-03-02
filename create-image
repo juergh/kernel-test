@@ -9,8 +9,8 @@ Usage: create-image [<options>] base
 Usage: create-image [<options>] test <test> [<test> <test> ...]
 
 Available options:
+  -e, --keep              Keep image file after a build failure
   -f, --force             Force the creation of an image
-  -p, --preserve          Preserve image file after a build failure
   -s, --series <SERIES>   Build an image for series <SERIES>
 EOF
 	exit 2
@@ -20,7 +20,7 @@ EOF
 FORCE=0
 IMAGE=
 
-KT_PRESERVE=
+KT_KEEP=
 KT_SERIES=
 KT_TESTS=()
 
@@ -29,9 +29,9 @@ while [ $# -gt 0 ] ; do
 		-f|--force)
 			FORCE=1
 			;;
-		-p|--preserve)
+		-e|--keep)
 			# shellcheck disable=SC2034
-			KT_PRESERVE=1
+			KT_KEEP=1
 			;;
 		-s|--series)
 			shift
