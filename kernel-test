@@ -180,7 +180,6 @@ while [ $# -gt 0 ] ; do
 			;;
 		-t|--tests)
 			shift
-			# shellcheck disable=SC2034
 			IFS=',' read -r -a KT_TESTS <<< "${1}"
 			;;
 		-v|--verbose)
