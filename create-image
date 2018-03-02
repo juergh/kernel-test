@@ -6,12 +6,14 @@ function usage()
 Usage: create-image [<options>] initrd
 Usage: create-image [<options>] root
 Usage: create-image [<options>] base
-Usage: create-image [<options>] test <test> [<test> <test> ...]
+Usage: create-image [<options>] test -t <TEST>[,<TEST>,<TEST>...]
 
 Available options:
   -e, --keep              Keep image file after a build failure
   -f, --force             Force the creation of an image
   -s, --series <SERIES>   Build an image for series <SERIES>
+  -t, --tests <TEST>[,<TEST>,<TEST>...]
+                          Add the tests <TEST>[,<TEST>,<TEST>...] to the image
 EOF
 	exit 2
 }
@@ -22,7 +24,6 @@ IMAGE=
 
 KT_KEEP=
 KT_SERIES=
-KT_TESTS=()
 
 while [ $# -gt 0 ] ; do
 	case "${1}" in
@@ -38,26 +39,25 @@ while [ $# -gt 0 ] ; do
 			# shellcheck disable=SC2034
 			KT_SERIES=${1}
 			;;
+		-t|--tests)
+			shift
+			IFS=',' read -r -a KT_TESTS <<< "${1}"
+			;;
 		*)
-			if [ -z "${IMAGE}" ] ; then
-				IMAGE=${1}
-				if [ "${IMAGE}" = "initrd" ] || [ "${IMAGE}" = "root" ] || \
-					   [ "${IMAGE}" = "base" ] ; then
-					break
-				fi
-			elif [ "${IMAGE}" = "test" ] ; then
-				# shellcheck disable=SC2034
-				KT_TESTS=(${@})
-				break
-			else
+			if [ -n "${IMAGE}" ] ; then
 				usage
 			fi
+			IMAGE=${1}
 			;;
 	esac
 	shift
 done
 
 if [ -z "${IMAGE}" ] ; then
+	usage
+fi
+
+if [ "${IMAGE}" = "test" ] && [ -z "${KT_TESTS:-}" ] ; then
 	usage
 fi
 
@@ -73,6 +73,10 @@ case "${IMAGE}" in
 		;;
 	test)
 		KT_FORCE_TEST=${FORCE}
+		;;
+	*)
+		echo "+++ ERROR: Unknown image type: ${IMAGE}"
+		exit 1
 		;;
 esac
 
