@@ -123,7 +123,7 @@ hostname -F /etc/hostname
 # Hack to cache the 'test' label
 lsblk | tail -n +2 | \
 	while read -r dev ; do
-		blkid "${dev%% *}" >/dev/null 2>/dev/null || true
+		blkid "/dev/${dev%% *}" >/dev/null 2>/dev/null || true
 	done
 
 # Mount the test image
