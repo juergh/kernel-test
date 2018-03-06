@@ -25,19 +25,19 @@ case "${KT_SERIES}" in
 		DIST="Debian"
 		SERIES="${KT_SERIES}"
 		COMPS="main,contrib"
-		ROOTFS="ext4"
+		ROOT_FS="ext4"
 		;;
 	wheezy+ext3)
 		DIST="Debian"
 		SERIES="wheezy"
 		COMPS="main,contrib"
-		ROOTFS="ext3"
+		ROOT_FS="ext3"
 		;;
 	*)
 		DIST="Ubuntu"
 		SERIES="${KT_SERIES}"
 		COMPS="main,universe"
-		ROOTFS="ext4"
+		ROOT_FS="ext4"
 		;;
 esac
 
@@ -291,6 +291,9 @@ function kt_create_initrd()
 	cp libs/initrd.init "${initrd_dir}/init"
 	cp libs/copy-libs "${initrd_dir}/bin"
 
+	# Customize the initrd init
+	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${initrd_dir}/init"
+
 	# Copy the required binaries
 	for bin in /bin/busybox /bin/udevadm /sbin/udevadm /sbin/e2fsck \
 							/sbin/blkid /sbin/tune2fs ; do
@@ -351,7 +354,7 @@ function kt_create_root()
 	# Create the root image and filesystem
 	echo "+++ Creating root image ${ROOT_IMAGE##*/}"
 	qemu-img create -f raw "${ROOT_IMAGE}" "${ROOT_IMAGE_SIZE}"
-	/sbin/mkfs.${ROOTFS} -F -L root "${ROOT_IMAGE}"
+	"/sbin/mkfs.${ROOT_FS}" -F -L root "${ROOT_IMAGE}"
 
 	# Mount the image
 	kt_mount_image "${ROOT_IMAGE}"

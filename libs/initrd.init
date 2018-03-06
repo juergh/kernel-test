@@ -2,6 +2,8 @@
 
 echo "Loading initrd..."
 
+root_fs=__ROOT_FS__
+
 # Create base directories
 for d in /sys /proc /dev /tmp /root /etc ; do
     [ -d "${d}" ] || mkdir "${d}"
@@ -24,7 +26,7 @@ mount > /etc/mtab
 
 # Mount the root filesystem
 cat <<EOF >/etc/fstab
-LABEL=root  /root  ext4  defaults  0  1
+LABEL=root  /root  ${root_fs}  defaults  0  1
 EOF
 
 echo "Mounting root..."
