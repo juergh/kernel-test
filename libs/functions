@@ -507,6 +507,9 @@ PARALLEL=${KT_PARALLEL:-0}
 TIMEOUT=${KT_TIMEOUT:-0}
 EOF
 
+	# Copy the functions library
+	cp "tests/functions" "${test_dir}/"
+
 	# Copy the tests
 	for test_name in "${KT_TESTS[@]}" ; do
 		mkdir "${test_dir}/${test_name}"

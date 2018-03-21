@@ -1,0 +1,6 @@
+#!/bin/bash -eu
+#
+# Common globals and functions for the tests
+#
+
+KT_NUM_CPUS=$(getconf _NPROCESSORS_ONLN)
