@@ -15,7 +15,7 @@ function out()
 	if [ -e "${LOG_FILE}" ] ; then
 		echo "+++ Logfile: ${LOG_FILE}"
 
-		for TEST in "${KT_TESTS[@]}" ; do
+		for TEST in ${KT_TESTS} ; do
 			if grep "TEST RESULT: ${TEST} " "${LOG_FILE}" | \
 					grep -q PASS  ; then
 				passed+=(${TEST})
@@ -180,7 +180,7 @@ while [ $# -gt 0 ] ; do
 			;;
 		-t|--tests)
 			shift
-			IFS=',' read -r -a KT_TESTS <<< "${1}"
+			KT_TESTS=${1//,/ }
 			;;
 		-v|--verbose)
 			set -x

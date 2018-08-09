@@ -12,10 +12,6 @@
 BUILD_DIR=${PWD}/build
 [ -d "${BUILD_DIR}" ] || mkdir -p "${BUILD_DIR}"
 
-if [ "${KT_TESTS:-xxx}" = "xxx" ] ; then
-	KT_TESTS=()
-fi
-
 if [ -z "${KT_SERIES:-}" ] ; then
 	KT_SERIES=$(lsb_release -s -c)
 fi
@@ -463,14 +459,14 @@ function kt_create_test()
 	local test_dir=${BUILD_DIR}/test.d
 	local test_files test_name
 
-	if [ "${#KT_TESTS[@]}" -eq 0 ] ; then
+	if [ -z "${KT_TESTS:-}" ] ; then
 		echo "+++ Error: No test(s) specified"
 		return 1
 	fi
 
 	# Verify that the tests exist
 	test_files=()
-	for test_name in "${KT_TESTS[@]}" ; do
+	for test_name in ${KT_TESTS} ; do
 		if [ -e "tests/${test_name}.test" ] ; then
 			test_files+=("tests/${test_name}.test")
 		else
@@ -497,7 +493,7 @@ function kt_create_test()
 	mkdir "${test_dir}"
 
 	# Create the list of tests to execute
-	echo "${KT_TESTS[@]}" | tr ' ' '\n' | \
+	echo "${KT_TESTS}" | tr ' ' '\n' | \
 		sudo tee "${test_dir}/tests" >/dev/null
 
 	# Create the test env file
@@ -511,7 +507,7 @@ EOF
 	cp "tests/functions" "${test_dir}/"
 
 	# Copy the tests
-	for test_name in "${KT_TESTS[@]}" ; do
+	for test_name in ${KT_TESTS} ; do
 		mkdir "${test_dir}/${test_name}"
 		cp "tests/${test_name}.test" "${test_dir}/${test_name}"
 		if [ -e "tests/${test_name}/Makefile" ] ; then
