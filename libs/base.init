@@ -69,7 +69,7 @@ function run_test()
 	test_begin=$(date +%s)
 
 	test_result="\e[92mPASS\e[0m"
-	cd "/test/${test_name}" && eval "./${test_name}.test" || \
+	cd "/test/" && eval "./${test_name}.test" || \
 			test_result="\e[91mFAIL\e[0m"
 
 	test_end=$(date +%s)

@@ -479,7 +479,7 @@ function kt_create_test()
 		fi
 	done
 
-	TEST_ID=$(md5sum "${test_files[@]}" | md5sum | awk '{ print $1 }')
+	TEST_ID=$(md5sum "${test_files[*]}" | md5sum | awk '{ print $1 }')
 	KT_TEST_IMAGE=${BUILD_DIR}/test-${TEST_ID}.img
 
 	if [ -e "${KT_TEST_IMAGE}" ] ; then
@@ -512,14 +512,7 @@ EOF
 
 	# Copy the tests
 	for test_name in ${KT_TESTS} ; do
-		mkdir "${test_dir}/${test_name}"
-		cp "tests/${test_name}.test" "${test_dir}/${test_name}"
-		if [ -e "tests/${test_name}/Makefile" ] ; then
-			make -C "tests/${test_name}" DESTDIR="${test_dir}/${test_name}" \
-				 install
-		elif [ -d "tests/${test_name}" ] ; then
-			cp "tests/${test_name}"/* "${test_dir}/${test_name}"
-		fi
+		cp "tests/${test_name}.test" "${test_dir}/"
 	done
 
 	genisoimage -ldots -allow-lowercase -allow-multidot -l -J -r \
