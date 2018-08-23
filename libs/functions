@@ -16,12 +16,17 @@ if [ -z "${KT_SERIES:-}" ] ; then
 	KT_SERIES=$(lsb_release -s -c)
 fi
 
+DIST="Ubuntu"
+SERIES="${KT_SERIES}"
+COMPS="main,universe"
+ROOTFS="ext4"
+MKFS_OPTS=()
+
 case "${KT_SERIES}" in
 	wheezy|stretch|buster)
 		DIST="Debian"
 		SERIES="${KT_SERIES}"
 		COMPS="main,contrib"
-		ROOT_FS="ext4"
 		;;
 	wheezy+ext3)
 		DIST="Debian"
@@ -29,11 +34,10 @@ case "${KT_SERIES}" in
 		COMPS="main,contrib"
 		ROOT_FS="ext3"
 		;;
+	precise)
+		MKFS_OPTS=("-O" "^metadata_csum")
+		;;
 	*)
-		DIST="Ubuntu"
-		SERIES="${KT_SERIES}"
-		COMPS="main,universe"
-		ROOT_FS="ext4"
 		;;
 esac
 
@@ -350,7 +354,7 @@ function kt_create_root()
 	# Create the root image and filesystem
 	echo "+++ Creating root image ${ROOT_IMAGE##*/}"
 	qemu-img create -f raw "${ROOT_IMAGE}" "${ROOT_IMAGE_SIZE}"
-	"/sbin/mkfs.${ROOT_FS}" -F -L root "${ROOT_IMAGE}"
+	/sbin/mkfs.${ROOTFS} "${MKFS_OPTS[@]}" -F -L root "${ROOT_IMAGE}"
 
 	# Mount the image
 	kt_mount_image "${ROOT_IMAGE}"

@@ -30,22 +30,7 @@ LABEL=root  /root  ${root_fs}  defaults  0  1
 EOF
 
 echo "Mounting root..."
-if ! mount -a ; then
-	# Older kernels can't handle newer ext4 features, so disable them and try
-	# to mount again.
-	for dev in $(tail -n +3 /proc/partitions | awk '{ print $4 }') ; do
-		if blkid "/dev/${dev}" | grep -q 'LABEL="root"' ; then
-			echo "Disabling features on /dev/${dev}..."
-			tune2fs -f -O ^has_journal "/dev/${dev}"
-			e2fsck -f "/dev/${dev}"
-			echo y | tune2fs -f -O ^metadata_csum "/dev/${dev}"
-			e2fsck -f "/dev/${dev}"
-			break
-		fi
-	done
-	echo "Mounting root again..."
-	mount -a
-fi
+mount -a
 
 # Stop udevd
 udevadm control --exit
