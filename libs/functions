@@ -44,7 +44,6 @@ esac
 IMAGE_MOUNT=${BUILD_DIR}/image.mnt
 IMAGE_PIDFILE=${BUILD_DIR}/image.pid
 
-ROOT_IMAGE_SIZE=1G
 BASE_IMAGE_SIZE=10G
 
 
@@ -102,7 +101,7 @@ function kt_mount_image()
 
 	else
 		sudo guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
-			 -m /dev/sda --rw -o dev "${IMAGE_MOUNT}"
+			 -m /dev/sda1 --rw -o dev "${IMAGE_MOUNT}"
 	fi
 }
 
@@ -338,7 +337,7 @@ function kt_create_initrd()
 
 function kt_create_root()
 {
-#	local package
+	local suffix name url
 
 	ROOT_IMAGE=${BUILD_DIR}/root-${KT_SERIES}.img
 
@@ -351,30 +350,24 @@ function kt_create_root()
 		fi
 	fi
 		
-	# Create the root image and filesystem
+	# Download and customize the root image
 	echo "+++ Creating root image ${ROOT_IMAGE##*/}"
-	qemu-img create -f raw "${ROOT_IMAGE}" "${ROOT_IMAGE_SIZE}"
-	/sbin/mkfs.${ROOT_FS} "${MKFS_OPTS[@]}" -F -L root "${ROOT_IMAGE}"
+
+	suffix=
+	if [ "${KT_SERIES}" = "precise" ] || [ "${KT_SERIES}" = "trusty" ] || \
+       [ "${KT_SERIES}" = "xenial" ] ; then
+        suffix="-disk1"
+	fi
+
+	name=${KT_SERIES}-server-cloudimg-amd64${suffix}.img
+	url=https://cloud-images.ubuntu.com/${KT_SERIES}/current/${name}
+	wget -O "${ROOT_IMAGE}" "${url}"
 
 	# Mount the image
 	kt_mount_image "${ROOT_IMAGE}"
 	# shellcheck disable=SC2064
 	trap "kt_unmount_image ${ROOT_IMAGE} kt_create_root" EXIT INT TERM HUP
 
-	# Install Ubuntu/Debian
-	echo "+++ Installing ${DIST} (${SERIES})"
-	sudo debootstrap \
-		 --components="${COMPS}" \
-		 --include=busybox,lsb-release,rsync \
-		 "${SERIES}" "${IMAGE_MOUNT}"
-
-	# Install 32-bit libraries
-#	sudo chroot "${IMAGE_MOUNT}" "dpkg --add-architecture i386 ; \
-#		 apt-get update"
-
-	# Clean the apt cache
-	sudo chroot "${IMAGE_MOUNT}" apt-get clean
-	
 	# Customization
 	echo "root-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
 							 >/dev/null
@@ -388,10 +381,6 @@ EOF
 	trap - EXIT INT TERM HUP
 	# shellcheck disable=SC2119
 	kt_unmount_image "${ROOT_IMAGE}"
-
-	# Convert the raw image to qcow2
-	qemu-img convert -f raw -O qcow2 "${ROOT_IMAGE}" "${ROOT_IMAGE}.tmp"
-	mv "${ROOT_IMAGE}.tmp"  "${ROOT_IMAGE}"
 }
 
 
@@ -422,7 +411,7 @@ function kt_create_base()
 
 	# Resize the root filesystem
 	echo "+++ Resizing root filesystem"
-	sudo guestfish add "${KT_BASE_IMAGE}" : run : resize2fs /dev/sda
+	sudo guestfish add "${KT_BASE_IMAGE}" : run : resize2fs /dev/sda1
 
 	# Mount the image
 	kt_mount_image "${KT_BASE_IMAGE}"

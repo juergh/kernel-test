@@ -26,7 +26,7 @@ mount > /etc/mtab
 
 # Mount the root filesystem
 cat <<EOF >/etc/fstab
-LABEL=root  /root  ${root_fs}  defaults  0  1
+LABEL=cloudimg-rootfs  /root  ${root_fs}  defaults  0  1
 EOF
 
 echo "Mounting root..."
@@ -40,11 +40,6 @@ if ! [ -e /root/init ] ; then
 	echo "No /root/init found, dropping into an emergency shell"
 	ash
 fi
-
-# Create /etc/fstab on the root filesystem
-cat <<EOF >/root/etc/fstab
-LABEL=root  /  ext4  defaults  0  1
-EOF
 
 # Move virtual filesystems
 for d in /sys /proc /dev /tmp ; do
