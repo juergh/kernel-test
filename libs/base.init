@@ -131,7 +131,11 @@ cat <<EOF >>/etc/fstab
 LABEL=test  /test  iso9660  defaults  0  0
 EOF
 mkdir /test
-mount -a
+if ! mount -a ; then
+	echo "Failed to mount test image, dropping into an emergency shell"
+	bash
+	exit
+fi
 
 # Check the presence of the test list and test env files
 if ! [ -e "/test/tests" ] || ! [ -e "/test/tests.env" ] ; then
