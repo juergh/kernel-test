@@ -22,7 +22,7 @@ EOF
 }
 
 KT_SERIES=
-KT_TESTS=
+KT_TESTS=""
 
 while [ $# -gt 0 ] ; do
 	case "${1}" in
@@ -30,12 +30,15 @@ while [ $# -gt 0 ] ; do
 			usage
 			exit
 			;;
+		--)
+			shift
+			break
+			;;
 		*)
 			if [ -z "${KT_SERIES}" ] ; then
 				KT_SERIES=${1}
 			else
-				KT_TESTS=${*}
-				break
+				KT_TESTS="${KT_TESTS},${1}"
 			fi
 			;;
 	esac
@@ -47,13 +50,14 @@ if [ -z "${KT_SERIES}" ] ; then
 	exit 2
 fi
 
+# The default test to run
+KT_TESTS=${KT_TESTS#,}
 if [ -z "${KT_TESTS}" ] ; then
 	KT_TESTS=boot
 fi
 
-# The default kernel
-KT_KERNEL=~/git/ubuntu/"${KT_SERIES}"/linux/arch/x86/boot/bzImage
+# Which kernel to use
+KT_KERNEL=~/git/ubuntu/${KT_SERIES}/linux/build/amd64/arch/x86/boot/bzImage
 
 # Run the tests
-export KT_SERIES KT_TESTS KT_KERNEL
-./kernel-test
+./kernel-test "${@}" -s "${KT_SERIES}" -k "${KT_KERNEL}" -t "${KT_TESTS}"
