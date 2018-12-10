@@ -9,6 +9,7 @@ Usage: create-image [<options>] base
 Usage: create-image [<options>] test -t <TEST>[,<TEST>,<TEST>...]
 
 Available options:
+  -d, --debug             Enable debug output (set -x)
   -e, --keep              Keep image file after a build failure
   -f, --force             Force the creation of an image
   -s, --series <SERIES>   Build an image for series <SERIES>
@@ -27,12 +28,15 @@ KT_SERIES=
 
 while [ $# -gt 0 ] ; do
 	case "${1}" in
-		-f|--force)
-			FORCE=1
+		-d|--debug)
+			set -x
 			;;
 		-e|--keep)
 			# shellcheck disable=SC2034
 			KT_KEEP=1
+			;;
+		-f|--force)
+			FORCE=1
 			;;
 		-s|--series)
 			shift
