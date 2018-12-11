@@ -45,6 +45,7 @@ IMAGE_MOUNT=${BUILD_DIR}/image.mnt
 IMAGE_PIDFILE=${BUILD_DIR}/image.pid
 
 BASE_IMAGE_SIZE=10G
+TEST_IMAGE_SIZE=100M
 
 
 # -----------------------------------------------------------------------------
@@ -97,15 +98,10 @@ function kt_mount_image()
 		( cd "${IMAGE_MOUNT}" && zcat "${image_file}" | \
 				  cpio --extract --quiet )
 		touch "${IMAGE_PIDFILE}"
-
-	elif [ "${image_type}" = "test" ] ; then
-		sudo mount -o loop "${image_file}" "${IMAGE_MOUNT}"
-		touch "${IMAGE_PIDFILE}"
-
 	else
-		sudo LIBGUESTFS_MEMSIZE=1024 \
-			 guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
-			 -m /dev/sda1 --rw -o dev "${IMAGE_MOUNT}"
+		LIBGUESTFS_MEMSIZE=1024 \
+			guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
+					   -m /dev/sda1 --rw -o dev -o allow_root "${IMAGE_MOUNT}"
 	fi
 }
 
@@ -134,11 +130,6 @@ function kt_unmount_image()
 		( cd "${IMAGE_MOUNT}" && find . | fakeroot cpio -o -H newc | \
 				  gzip > "${image_file}" )
 		rm -f "${IMAGE_PIDFILE}"
-
-	elif [ "${image_type}" = "test" ] ; then
-		sudo umount "${IMAGE_MOUNT}"
-		rm -f "${IMAGE_PIDFILE}"
-
 	else
 		# FIXME: Figure out programatically what to unmount
 
@@ -155,7 +146,7 @@ function kt_unmount_image()
 		done
 
 		image_pid=$(cat "${IMAGE_PIDFILE}")
-		sudo guestunmount "${IMAGE_MOUNT}"
+		guestunmount "${IMAGE_MOUNT}"
 		_wait_for_guestunmount "${image_pid}"
 	fi
 
@@ -190,7 +181,7 @@ function kt_ls_image()
 	# shellcheck disable=SC2064
 	trap "kt_unmount_image ${image} kt_ls_image" EXIT INT TERM HUP
 
-	sudo bash -c "cd ${IMAGE_MOUNT} && sudo find . | sort"
+	( cd "${IMAGE_MOUNT}" && sudo find . )
 
 	# Unmount the image
 	trap - EXIT INT TERM HUP
@@ -220,7 +211,7 @@ function kt_login_image()
 
 	noshell=1
 	for shell in /bin/bash /bin/ash /bin/sh ; do
-		if sudo test -e "${IMAGE_MOUNT}/${shell}" ; then
+		if test -e "${IMAGE_MOUNT}/${shell}" ; then
 			noshell=0
 			sudo chroot "${IMAGE_MOUNT}" "${shell}" || true
 			break
@@ -246,16 +237,6 @@ function kt_create_initrd()
 {
 	local initrd_dir=${BUILD_DIR}/initrd.d
 
-#	if [ -z "${KT_KERNEL:-}" ] ; then
-#		echo "+++ Error: No kernel specified"
-#		return 1
-#	elif ! [ -e "${KT_KERNEL}" ] ; then
-#		echo "+++ Error: No such kernel: ${KT_KERNEL}"
-#		return 1
-#	fi
-
-#	INITRD_ID=$(md5sum "${KT_KERNEL}" libs/initrd.init | md5sum | \
-#					awk '{ print $1 }')
 	INITRD_ID=$(md5sum libs/initrd.init | md5sum | awk '{ print $1 }')
 	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${INITRD_ID}.img
 
@@ -297,8 +278,8 @@ function kt_create_initrd()
 	# Copy the required binaries
 	for bin in /bin/busybox /bin/udevadm /sbin/udevadm /sbin/e2fsck \
 							/sbin/blkid /sbin/tune2fs ; do
-		if sudo test -e "${IMAGE_MOUNT}/${bin}" ; then
-			sudo cp "${IMAGE_MOUNT}/${bin}" "${initrd_dir}/${bin}"
+		if test -e "${IMAGE_MOUNT}/${bin}" ; then
+			cp "${IMAGE_MOUNT}/${bin}" "${initrd_dir}/${bin}"
 		fi
 	done
 
@@ -370,10 +351,9 @@ function kt_create_root()
 	trap "kt_unmount_image ${ROOT_IMAGE} kt_create_root" EXIT INT TERM HUP
 
 	# Customization
-	echo "root-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
-							 >/dev/null
-	echo "kernel-test" | sudo tee "${IMAGE_MOUNT}/etc/hostname" >/dev/null
-	cat <<EOF | sudo tee "${IMAGE_MOUNT}/etc/hosts" >/dev/null
+	echo "root-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
+	echo "kernel-test" > "${IMAGE_MOUNT}/etc/hostname"
+	cat <<EOF > "${IMAGE_MOUNT}/etc/hosts"
 127.0.0.1   localhost
 127.0.1.1   kernel-test
 EOF
@@ -407,24 +387,27 @@ function kt_create_base()
 
 	# Create the base image
 	echo "+++ Creating base image ${KT_BASE_IMAGE##*/}"
-	qemu-img create -f qcow2 -o backing_file="${ROOT_IMAGE}" "${KT_BASE_IMAGE}"
-	qemu-img resize -f qcow2 "${KT_BASE_IMAGE}" "${BASE_IMAGE_SIZE}"
+	qemu-img create -f qcow2 -o backing_file="${ROOT_IMAGE}" \
+			 "${KT_BASE_IMAGE}" "${BASE_IMAGE_SIZE}"
 
 	# Resize the root filesystem
 	echo "+++ Resizing root filesystem"
-	sudo guestfish add "${KT_BASE_IMAGE}" : run : resize2fs /dev/sda1
+	guestfish <<EOF
+add "${KT_BASE_IMAGE}"
+run
+resize2fs /dev/sda1
+EOF
 
 	# Mount the image
 	kt_mount_image "${KT_BASE_IMAGE}"
 	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_base_test" EXIT INT TERM HUP
+	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_base" EXIT INT TERM HUP
 
 	# Customization
-	echo "base-image" | sudo tee "${IMAGE_MOUNT}/etc/debian_chroot" \
-							 >/dev/null
+	echo "base-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
 
 	# Install the initrd
-	sudo cp libs/base.init "${IMAGE_MOUNT}/init"
+	cp libs/base.init "${IMAGE_MOUNT}/init"
 
 	# Pre-seed and install kexec-tools
 #	sudo chroot "${IMAGE_MOUNT}" \
@@ -450,7 +433,6 @@ function kt_create_base()
 
 function kt_create_test()
 {
-	local test_dir=${BUILD_DIR}/test.d
 	local test_files test_name
 
 	if [ -z "${KT_TESTS:-}" ] ; then
@@ -483,29 +465,40 @@ function kt_create_test()
 
 	echo "+++ Creating test image ${KT_TEST_IMAGE##*/}"
 
-	rm -rf "${test_dir}"
-	mkdir "${test_dir}"
+	qemu-img create -f raw "${KT_TEST_IMAGE}" "${TEST_IMAGE_SIZE}"
+	guestfish <<EOF
+add "${KT_TEST_IMAGE}"
+run
+part-disk /dev/sda mbr
+mkfs "${ROOT_FS}" /dev/sda1
+set-label /dev/sda1 test
+EOF
+
+	# Mount the image
+	kt_mount_image "${KT_TEST_IMAGE}"
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${KT_TEST_IMAGE} kt_create_test" EXIT INT TERM HUP
 
 	# Create the list of tests to execute
-	echo "${KT_TESTS}" | tr ' ' '\n' | \
-		sudo tee "${test_dir}/tests" >/dev/null
+	echo "${KT_TESTS}" | tr ' ' '\n' > "${IMAGE_MOUNT}/tests"
 
 	# Create the test env file
-	cat <<EOF | sudo tee  "${test_dir}/tests.env" >/dev/null
+	cat <<EOF > "${IMAGE_MOUNT}/tests.env"
 LOOP_COUNT=${KT_LOOP_COUNT:-1}
 PARALLEL=${KT_PARALLEL:-0}
 TIMEOUT=${KT_TIMEOUT:-0}
 EOF
 
 	# Copy the functions library
-	cp "tests/functions" "${test_dir}/"
+	cp "tests/functions" "${IMAGE_MOUNT}/"
 
 	# Copy the tests
 	for test_name in ${KT_TESTS} ; do
-		cp "tests/${test_name}.test" "${test_dir}/"
+		cp "tests/${test_name}.test" "${IMAGE_MOUNT}/"
 	done
 
-	genisoimage -ldots -allow-lowercase -allow-multidot -l -J -r \
-				-input-charset default -V "test" -o "${KT_TEST_IMAGE}" \
-				"${test_dir}"
+	# Unmount the image
+	trap - EXIT INT TERM HUP
+	# shellcheck disable=SC2119
+	kt_unmount_image "${KT_TEST_IMAGE}"
 }
