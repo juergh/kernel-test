@@ -308,7 +308,7 @@ function kt_create_initrd()
 
 	# Copy the required dynamic libraries
 	sudo chroot "${IMAGE_MOUNT}" /tmp/initrd.d/bin/copy-libs \
-		 /tmp/initrd.d/ tmp/initrd.d/bin/ /tmp/initrd.d/sbin/
+		 /tmp/initrd.d/ /tmp/initrd.d/bin/ /tmp/initrd.d/sbin/
 
 	# Create the busybox symlinks
 	sudo chroot "${IMAGE_MOUNT}" /bin/busybox --install -s "/tmp/initrd.d/bin"
