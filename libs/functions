@@ -100,7 +100,8 @@ function kt_mount_image()
 		touch "${IMAGE_PIDFILE}"
 
 	else
-		sudo guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
+		sudo LIBGUESTFS_MEMSIZE=1024 \
+			 guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
 			 -m /dev/sda1 --rw -o dev "${IMAGE_MOUNT}"
 	fi
 }
