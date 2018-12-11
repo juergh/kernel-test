@@ -65,6 +65,9 @@ function _wait_for_guestunmount()
         echo "+++ Error: wait_for_guestmount timed out after 10 seconds"
         return 1
     fi
+
+	# Why do we need this when we do the 'guestmount --pid-file' dance??
+	sleep 2
 }
 
 function kt_mount_image()
@@ -154,9 +157,6 @@ function kt_unmount_image()
 		image_pid=$(cat "${IMAGE_PIDFILE}")
 		sudo guestunmount "${IMAGE_MOUNT}"
 		_wait_for_guestunmount "${image_pid}"
-
-		# Why do we need this when we do the 'guestmount --pid-file' dance??
-		sleep 2
 	fi
 
 	if [ -n "${caller}" ] ; then
