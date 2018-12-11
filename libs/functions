@@ -337,7 +337,7 @@ function kt_create_root()
 
 	name=${KT_SERIES}-server-cloudimg-amd64${suffix}.img
 	url=https://cloud-images.ubuntu.com/${KT_SERIES}/current/${name}
-	wget -O "${ROOT_IMAGE}" "${url}"
+	wget --progress=bar:force:noscroll -O "${ROOT_IMAGE}" "${url}"
 
 	# Mount the root image
 	kt_mount_image "${ROOT_IMAGE}" kt_create_root
