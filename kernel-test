@@ -230,10 +230,10 @@ trap out EXIT INT TERM HUP
 		-kernel "${KT_KERNEL}" \
 		-append "earlyprintk=ttyS0 console=ttyS0 ${QEMU_CMDLINE[*]} ${KT_KERNEL_CMDLINE:-}" \
 		-initrd "${KT_INITRD_IMAGE}" \
-		-drive file=build/base.img,if=none,format=qcow2,id=drive-image0 \
+		-drive file="${KT_BASE_IMAGE}",if=none,format=qcow2,id=drive-image0 \
 		-device "${QEMU_DISK_DEVICE:-ide-hd}",drive=drive-image0 \
-		-drive file="${KT_TEST_IMAGE}",if=none,id=drive-image1,readonly=on \
-		-device "${QEMU_DISK_DEVICE:-ide-cd}",drive=drive-image1 \
+		-drive file="${KT_TEST_IMAGE}",if=none,format=qcow2,id=drive-image1 \
+		-device "${QEMU_DISK_DEVICE:-ide-hd}",drive=drive-image1 \
 		-display none \
 		-serial stdio \
 		-monitor tcp:localhost:4000,server,nowait \

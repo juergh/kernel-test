@@ -24,15 +24,21 @@ function print_header()
 {
 	echo
 	print_info -n "=== ${1} "
-	print_info "$(printf "%0.s=" $(seq 1 $((120 - ${#1}))))"
+	print_info "$(printf "%0.s=" $(seq 1 $((75 - ${#1}))))"
 	echo
 }
 
 function poweroff()
 {
-	print_header "POWERING OFF" 
+	trap - EXIT INT TERM HUP
+	set +e
+
+	print_header "POWERING OFF"
 	echo 3 > /proc/sys/vm/drop_caches
 	sync
+
+	cd /
+	umount /test || umount -l /test
 	mount -o remount,ro /
 	echo o > /proc/sysrq-trigger
 
@@ -46,11 +52,16 @@ function print_system_info()
 	print_header "SYSTEM INFO"
 
 	lsb_release -a
-	echo "--------"
+	echo
+	printf "%0.s-" {1..80}
+	echo
 
+	echo
 	cat /proc/cpuinfo
-	echo "--------"
+	printf "%0.s-" {1..80}
+	echo
 
+	echo
 	echo -n "kernel         : "
 	uname -a
 	echo -n "kernel cmdline : "
@@ -74,6 +85,7 @@ function run_test()
 
 	test_end=$(date +%s)
 
+	echo
 	print_info "=== TEST RESULT: ${test_name} (${test_count}) ${test_result}"
 	print_info "=== TEST DURATION: $(duration $((test_end - test_begin)))"
 }
@@ -127,12 +139,9 @@ lsblk | tail -n +2 | \
 	done
 
 # Mount the test image
-cat <<EOF >>/etc/fstab
-LABEL=test  /test  iso9660  defaults  0  0
-EOF
-mkdir /test
-if ! mount -a ; then
-	echo "Failed to mount test image, dropping into an emergency shell"
+[ -d /test ] || mkdir /test
+if ! mount -L test /test ; then
+	echo "+++ Failed to mount test image, dropping into an emergency shell"
 	bash
 	exit
 fi

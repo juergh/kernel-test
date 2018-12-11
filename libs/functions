@@ -211,7 +211,7 @@ function kt_login_image()
 
 	noshell=1
 	for shell in /bin/bash /bin/ash /bin/sh ; do
-		if test -e "${IMAGE_MOUNT}/${shell}" ; then
+		if [ -e "${IMAGE_MOUNT}/${shell}" ] ; then
 			noshell=0
 			sudo chroot "${IMAGE_MOUNT}" "${shell}" || true
 			break
@@ -274,7 +274,7 @@ function kt_create_initrd()
 	# Copy the required binaries
 	for bin in /bin/busybox /bin/udevadm /sbin/udevadm /sbin/e2fsck \
 							/sbin/blkid /sbin/tune2fs ; do
-		if test -e "${IMAGE_MOUNT}/${bin}" ; then
+		if [ -e "${IMAGE_MOUNT}/${bin}" ] ; then
 			cp "${IMAGE_MOUNT}/${bin}" "${initrd_dir}/${bin}"
 		fi
 	done
@@ -396,6 +396,7 @@ EOF
 
 	# Install the initrd
 	cp libs/base.init "${IMAGE_MOUNT}/init"
+	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${IMAGE_MOUNT}/init"
 
 	# Pre-seed and install kexec-tools
 #	sudo chroot "${IMAGE_MOUNT}" \
@@ -451,7 +452,7 @@ function kt_create_test()
 
 	echo "+++ Creating test image ${KT_TEST_IMAGE##*/}"
 
-	qemu-img create -f raw "${KT_TEST_IMAGE}" "${TEST_IMAGE_SIZE}"
+	qemu-img create -f qcow2 "${KT_TEST_IMAGE}" "${TEST_IMAGE_SIZE}"
 	guestfish <<EOF
 add "${KT_TEST_IMAGE}"
 run

@@ -2,8 +2,6 @@
 
 echo "Loading initrd..."
 
-root_fs=__ROOT_FS__
-
 # Create base directories
 for d in /sys /proc /dev /tmp /root /etc ; do
     [ -d "${d}" ] || mkdir "${d}"
@@ -18,22 +16,22 @@ mount -t devpts -o nosuid,mode=0620 devpts /dev/pts || true
 mount -t tmpfs -o nodev,nosuid tmpfs /tmp
 
 # Start udevd
-udevadm trigger --action=add
-udevadm settle
+#udevadm trigger --action=add
+#udevadm settle
 
 # Create /etc/mtab
 mount > /etc/mtab
 
 # Mount the root filesystem
 cat <<EOF >/etc/fstab
-LABEL=cloudimg-rootfs  /root  ${root_fs}  defaults  0  1
+LABEL=cloudimg-rootfs  /root  __ROOT_FS__  defaults  0  1
 EOF
 
 echo "Mounting root..."
-mount -a
+mount /root
 
 # Stop udevd
-udevadm control --exit
+#udevadm control --exit
 
 # Check for /root/init
 if ! [ -e /root/init ] ; then

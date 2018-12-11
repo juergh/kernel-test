@@ -8,7 +8,7 @@ function list_libs()
 	local bin=${1}
 	local line lib
 
-	( ldd "${bin}" 2>/dev/null || true ) | \
+	( ldd "${bin}" || true ) | \
 		while read -r line ; do
 			lib="${line% (*}"
 			lib="${lib##* }"
