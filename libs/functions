@@ -73,7 +73,7 @@ function _wait_for_guestunmount()
 
 function kt_mount_image()
 {
-	local image_file=${1}
+	local image_file=${1} caller=${2}
 	local image_name image_type
 
 	if [ -e "${IMAGE_PIDFILE}" ] ; then
@@ -103,6 +103,10 @@ function kt_mount_image()
 			guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
 					   -m /dev/sda1 --rw -o dev -o allow_root "${IMAGE_MOUNT}"
 	fi
+
+	# Register an unmount handler
+	# shellcheck disable=SC2064
+	trap "kt_unmount_image ${image_file} ${caller}" EXIT INT TERM HUP
 }
 
 
@@ -110,6 +114,8 @@ function kt_unmount_image()
 {
 	local image_file=${1} caller=${2:-}
 	local image_name image_type image_pid dev
+
+	trap - EXIT INT TERM HUP
 
 	if ! [ -e "${IMAGE_PIDFILE}" ] ; then
 		echo "+++ Error: No image mounted"
@@ -177,15 +183,11 @@ function kt_ls_image()
 
 	# Mount the image, make sure it doesn't get purged on error
 	KT_KEEP=2
-	kt_mount_image "${image}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${image} kt_ls_image" EXIT INT TERM HUP
+	kt_mount_image "${image}" kt_ls_image
 
 	( cd "${IMAGE_MOUNT}" && sudo find . )
 
 	# Unmount the image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
 	kt_unmount_image "${image}"
 }
 
@@ -205,9 +207,7 @@ function kt_login_image()
 
 	# Mount the image, make sure it doesn't get purged on error
 	KT_KEEP=2
-	kt_mount_image "${image}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${image} kt_login_image" EXIT INT TERM HUP
+	kt_mount_image "${image}" kt_login_image
 
 	noshell=1
 	for shell in /bin/bash /bin/ash /bin/sh ; do
@@ -219,8 +219,6 @@ function kt_login_image()
 	done
 	
 	# Unmount the image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
 	kt_unmount_image "${image}"
 	
 	if [ "${noshell}" -eq 1 ] ; then
@@ -254,9 +252,7 @@ function kt_create_initrd()
 
 	# Mount the base image, make sure it doesn't get purged on error
 	KT_KEEP=2
-	kt_mount_image "${KT_BASE_IMAGE}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_initrd" EXIT INT TERM HUP
+	kt_mount_image "${KT_BASE_IMAGE}" kt_create_initrd
 
 	# Create the initrd
 	echo "+++ Creating initrd image ${KT_INITRD_IMAGE##*/}"
@@ -304,8 +300,6 @@ function kt_create_initrd()
 	BIND_UNMOUNT=
 	
 	# Unmount the base image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
 	kt_unmount_image "${KT_BASE_IMAGE}"
 
 	# Finally create the initrd
@@ -345,10 +339,8 @@ function kt_create_root()
 	url=https://cloud-images.ubuntu.com/${KT_SERIES}/current/${name}
 	wget -O "${ROOT_IMAGE}" "${url}"
 
-	# Mount the image
-	kt_mount_image "${ROOT_IMAGE}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${ROOT_IMAGE} kt_create_root" EXIT INT TERM HUP
+	# Mount the root image
+	kt_mount_image "${ROOT_IMAGE}" kt_create_root
 
 	# Customization
 	echo "root-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
@@ -358,9 +350,7 @@ function kt_create_root()
 127.0.1.1   kernel-test
 EOF
 
-	# Unmount the image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
+	# Unmount the root image
 	kt_unmount_image "${ROOT_IMAGE}"
 }
 
@@ -398,10 +388,8 @@ run
 resize2fs /dev/sda1
 EOF
 
-	# Mount the image
-	kt_mount_image "${KT_BASE_IMAGE}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${KT_BASE_IMAGE} kt_create_base" EXIT INT TERM HUP
+	# Mount the base image
+	kt_mount_image "${KT_BASE_IMAGE}" kt_create_base
 
 	# Customization
 	echo "base-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
@@ -421,9 +409,7 @@ EOF
 #			 2>/dev/null || true
 #	done
 
-	# Unmount the image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
+	# Unmount the base image
 	kt_unmount_image "${KT_BASE_IMAGE}"
 }
 
@@ -474,10 +460,8 @@ mkfs "${ROOT_FS}" /dev/sda1
 set-label /dev/sda1 test
 EOF
 
-	# Mount the image
-	kt_mount_image "${KT_TEST_IMAGE}"
-	# shellcheck disable=SC2064
-	trap "kt_unmount_image ${KT_TEST_IMAGE} kt_create_test" EXIT INT TERM HUP
+	# Mount the test image
+	kt_mount_image "${KT_TEST_IMAGE}" kt_create_test
 
 	# Create the list of tests to execute
 	echo "${KT_TESTS}" | tr ' ' '\n' > "${IMAGE_MOUNT}/tests"
@@ -497,8 +481,6 @@ EOF
 		cp "tests/${test_name}.test" "${IMAGE_MOUNT}/"
 	done
 
-	# Unmount the image
-	trap - EXIT INT TERM HUP
-	# shellcheck disable=SC2119
+	# Unmount the test image
 	kt_unmount_image "${KT_TEST_IMAGE}"
 }
