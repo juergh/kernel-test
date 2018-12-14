@@ -102,6 +102,12 @@ function kt_mount_image()
 		LIBGUESTFS_MEMSIZE=1024 \
 			guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
 					   -m /dev/sda1 --rw -o dev -o allow_root "${IMAGE_MOUNT}"
+
+		# Mount pseudo filesystems
+		for dev in /dev /dev/pts /proc /sys ; do
+			sudo mount -o bind "${dev}" "${IMAGE_MOUNT}/${dev}" 2>/dev/null || \
+				true
+		done
 	fi
 
 	# Register an unmount handler
@@ -137,16 +143,7 @@ function kt_unmount_image()
 				  gzip > "${image_file}" )
 		rm -f "${IMAGE_PIDFILE}"
 	else
-		# FIXME: Figure out programatically what to unmount
-
-		# Bind-unmount
-		if [ -n "${BIND_UNMOUNT:-}" ] ; then
-			sudo umount "${BIND_UNMOUNT}" || true
-			sudo rmdir "${BIND_UNMOUNT}" || true
-			BIND_UNMOUNT=
-		fi
-
-		# Just in case
+		# Unmount pseudo filesystems
 		for dev in /dev/pts /dev /proc /sys ; do
 			sudo umount "${IMAGE_MOUNT}/${dev}" 2>/dev/null || true
 		done
@@ -233,8 +230,6 @@ function kt_login_image()
 
 function kt_create_initrd()
 {
-	local initrd_dir=${BUILD_DIR}/initrd.d
-
 	INITRD_ID=$(md5sum libs/initrd.init | md5sum | awk '{ print $1 }')
 	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${INITRD_ID}.img
 
@@ -257,54 +252,24 @@ function kt_create_initrd()
 	# Create the initrd
 	echo "+++ Creating initrd image ${KT_INITRD_IMAGE##*/}"
 
-	# Create the base initrd directory tree
-	rm -rf "${initrd_dir}"
-	mkdir -p "${initrd_dir}"{/usr/sbin/,/usr/bin/,/sbin/,/bin/,/etc}
-
-	# Customization
-	echo "initrd-image" > "${initrd_dir}/etc/debian_chroot"
-
-	# Copy the initrd init and helper scripts
-	cp libs/initrd.init "${initrd_dir}/init"
-	cp libs/copy-libs "${initrd_dir}/bin"
-
-	# Customize the initrd init
-	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${initrd_dir}/init"
-
-	# Copy the required binaries
-	for bin in /bin/busybox /bin/udevadm /sbin/udevadm /sbin/e2fsck \
-							/sbin/blkid /sbin/tune2fs ; do
-		if [ -e "${IMAGE_MOUNT}/${bin}" ] ; then
-			cp "${IMAGE_MOUNT}/${bin}" "${initrd_dir}/${bin}"
-		fi
-	done
-
-	# Bind-mount the initrd directory into the base image
-	sudo mkdir -p "${IMAGE_MOUNT}/tmp/initrd.d"
-	sudo mount --bind "${initrd_dir}" "${IMAGE_MOUNT}/tmp/initrd.d"
-	BIND_UNMOUNT="${IMAGE_MOUNT}/tmp/initrd.d"
-
-	# Copy the required dynamic libraries
-	sudo chroot "${IMAGE_MOUNT}" /tmp/initrd.d/bin/copy-libs \
-		 /tmp/initrd.d/ /tmp/initrd.d/bin/ /tmp/initrd.d/sbin/
-
-	# Create the busybox symlinks
-	sudo chroot "${IMAGE_MOUNT}" /bin/busybox --install -s "/tmp/initrd.d/bin"
-
-	# Fix the ownership
-	sudo chown -R "$(id -u):$(id -g)" "${initrd_dir}/"
-	
-	# Bind-unmount the initrd directory
-	sudo umount "${BIND_UNMOUNT}"
-	sudo rmdir "${BIND_UNMOUNT}"
-	BIND_UNMOUNT=
+	sudo chroot "${IMAGE_MOUNT}" mkinitramfs -o /tmp/initrd.img
+	cp "${IMAGE_MOUNT}/tmp/initrd.img" "${KT_INITRD_IMAGE}"
 	
 	# Unmount the base image
 	kt_unmount_image "${KT_BASE_IMAGE}"
 
-	# Finally create the initrd
-	( cd "${initrd_dir}" && find . | fakeroot cpio -o -H newc | \
-		gzip > "${KT_INITRD_IMAGE}" )
+	# Mount the initrd image
+	kt_mount_image "${KT_INITRD_IMAGE}" kt_create_initrd
+
+	# Customization
+	echo "initrd-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
+
+	# Copy the initrd init and customize it
+	cp libs/initrd.init "${IMAGE_MOUNT}/init"
+	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${IMAGE_MOUNT}/init"
+
+	# Unmount the initrd image
+	kt_unmount_image "${KT_INITRD_IMAGE}"
 }
 
 
