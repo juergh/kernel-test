@@ -6,7 +6,7 @@
 function usage()
 {
 	cat <<EOF
-Usage: kernel-simple-test [-h] <SERIES> [<TEST>] [<TEST>] ...
+Usage: kernel-simple-test [-h] [-k <KERNEL>] <SERIES> [<TEST>] [<TEST>] ...
 
 A simple wrapper for kernel-test.
 
@@ -17,18 +17,24 @@ and kernel of the specified Ubuntu series.
 <TEST>    A test name, like 'boot'.
 
 Available options:
-  -h, --help  Show this help text.
+  -h, --help             Show this help text.
+  -k, --kernel <KERNEL>  The kernel to boot.
 EOF
 }
 
 KT_SERIES=
-KT_TESTS=""
+KT_TESTS=
+KT_KERNEL=
 
 while [ $# -gt 0 ] ; do
 	case "${1}" in
 		-h|--help)
 			usage
 			exit
+			;;
+		-k|--kernel)
+			shift
+			KT_KERNEL=${1}
 			;;
 		--)
 			shift
@@ -56,8 +62,10 @@ if [ -z "${KT_TESTS}" ] ; then
 	KT_TESTS=boot
 fi
 
-# Which kernel to use
-KT_KERNEL=~/git/ubuntu/${KT_SERIES}/linux/build/amd64/arch/x86/boot/bzImage
+# The default kernel to use
+if [ -z "${KT_KERNEL}" ] ; then
+	KT_KERNEL=~/git/ubuntu/${KT_SERIES}/linux/build/amd64/arch/x86/boot/bzImage
+fi
 
 # Run the tests
 ./kernel-test "${@}" -s "${KT_SERIES}" -k "${KT_KERNEL}" -t "${KT_TESTS}"
