@@ -452,6 +452,9 @@ EOF
 	# Copy the tests
 	for test_name in ${KT_TESTS} ; do
 		cp "tests/${test_name}.test" "${IMAGE_MOUNT}/"
+		if [ -d "tests/${test_name}.d" ] ; then
+			cp -aRL "tests/${test_name}.d" "${IMAGE_MOUNT}/"
+		fi
 	done
 
 	# Unmount the test image
