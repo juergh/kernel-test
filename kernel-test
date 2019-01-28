@@ -57,35 +57,32 @@ function die()
 function usage()
 {
     cat <<EOF
-Usage: kernel-test [<options>] -k <KERNEL> -t <TEST>[,<TEST>,<TEST>...]
+Usage: kernel-test [OPTIONS] -k KERNEL -t TEST[,TEST,TEST...]
 
 Available options:
-  -a, --arch <ARCH>         The kernel architecture
-  -c, --cmdline <CMDLINE>   Use kernel commandline <CMDLINE> for the tests
-  -e, --keep                Keep images after a build failure
-  -f, --force               Force a rebuild of all images
-  -fi                       Force a rebuild of the initrd image
-  -fr                       Force a rebuild of the root image
-  -fb                       Force a rebuild of the base image
-  -ft                       Force a rebuild of the test image
-  -g, --gdb <DEBUGGER>      Enable GDB debugging:
-                            <DEBUGGER>=kgdb: Enable KGDB and connect it to
-                                             localhost:4001
-                            <DEBUGGER>=qemu: Open a QEMU gdbserver on
-                                             localhost:4002
-  -h, --help                Show this help text
-  -k, --kernel <KERNEL>     Use kernel <KERNEL> for the tests
-  -l, --loop <COUNT>        Run each test <COUNT> times
-  -o, --timeout <SECONDS>   Run each test for <SECONDS> seconds
-  -p, --parallel            Run tests in parallel
-  -s, --series <SERIES>     Use series <SERIES> for the tests
-  -t, --tests <TEST>[,<TEST>,<TEST>...]
-                            Run the comma-separated list of tests
-                            <TEST>[,<TEST>,<TEST>...]
-  -v, --verbose             Increase verbosity (set -x)
+  -a, --arch ARCH        The kernel architecture.
+  -c, --cmdline CMDLINE  Use kernel commandline CMDLINE for the tests.
+  -e, --keep             Keep images after a build failure.
+  -f, --force            Force a rebuild of all images.
+  -fi                    Force a rebuild of the initrd image.
+  -fr                    Force a rebuild of the root image.
+  -fb                    Force a rebuild of the base image.
+  -ft                    Force a rebuild of the test image.
+  -g, --gdb DEBUGGER     Enable GDB debugging:
+                         DEBUGGER=kgdb: Enable KGDB and connect it to
+                                        localhost:4001.
+                         DEBUGGER=qemu: Open a QEMU gdbserver on
+                                        localhost:4002.
+  -h, --help             Show this help text.
+  -k, --kernel KERNEL    Use kernel KERNEL for the tests.
+  -s, --series SERIES    Use series SERIES for the tests.
+  -t, --tests TEST[,TEST,TEST...]
+                         Run the comma-separated list of tests
+                         TEST[,TEST,TEST...].
+  -v, --verbose          Increase verbosity (set -x).
 
 QEMU options:
-  -qS   Do not start CPU at startup (-S)
+  -qS  Do not start CPU at startup (-S).
 EOF
 }
 
@@ -156,23 +153,6 @@ while [ $# -gt 0 ] ; do
 		-k|--kernel)
 			shift
 			KT_KERNEL=${1}
-			;;
-		-l|--loop)
-			shift
-			# shellcheck disable=SC2034
-			KT_LOOP_COUNT=${1}
-			KT_FORCE_TEST=1
-			;;
-		-o|--timeout)
-			shift
-			# shellcheck disable=SC2034
-			KT_TIMEOUT=${1}
-			KT_FORCE_TEST=1
-			;;
-		-p|--parallel)
-			# shellcheck disable=SC2034
-			KT_PARALLEL=1
-			KT_FORCE_TEST=1
 			;;
 		-qS)
 			QEMU_OPTS+=(-S)
