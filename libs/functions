@@ -47,6 +47,14 @@ IMAGE_PIDFILE=${BUILD_DIR}/image.pid
 BASE_IMAGE_SIZE=10G
 TEST_IMAGE_SIZE=100M
 
+# Exports for guestfish
+export LIBGUESTFS_MEMSIZE=1024
+
+# UGLY HACK: Make the kernel world-readable for guestfish
+if ! head -c 0 "/boot/vmlinuz-$(uname -r)" 2>/dev/null ; then
+	sudo chmod 644 "/boot/vmlinuz-$(uname -r)"
+fi
+
 
 # -----------------------------------------------------------------------------
 # Image mount/unmount helper functions
@@ -99,9 +107,8 @@ function kt_mount_image()
 				  cpio --extract --quiet )
 		touch "${IMAGE_PIDFILE}"
 	else
-		LIBGUESTFS_MEMSIZE=1024 \
-			guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
-					   -m /dev/sda1 --rw -o dev -o allow_root "${IMAGE_MOUNT}"
+		guestmount --pid-file "${IMAGE_PIDFILE}" -a "${image_file}" \
+				   -m /dev/sda1 --rw -o dev -o allow_root "${IMAGE_MOUNT}"
 
 		# Mount pseudo filesystems
 		for dev in /dev /dev/pts /proc /sys ; do
