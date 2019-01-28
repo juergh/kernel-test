@@ -3,18 +3,19 @@
 function usage()
 {
 	cat <<EOF
-Usage: create-image [<options>] initrd
-Usage: create-image [<options>] root
-Usage: create-image [<options>] base
-Usage: create-image [<options>] test -t <TEST>[,<TEST>,<TEST>...]
+Usage: create-image [OPTIONS] initrd
+Usage: create-image [OPTIONS] root
+Usage: create-image [OPTIONS] base
+Usage: create-image [OPTIONS] test -t TEST[,TEST,TEST...]
 
 Available options:
-  -d, --debug             Enable debug output (set -x)
-  -e, --keep              Keep image file after a build failure
-  -f, --force             Force the creation of an image
-  -s, --series <SERIES>   Build an image for series <SERIES>
-  -t, --tests <TEST>[,<TEST>,<TEST>...]
-                          Add the tests <TEST>[,<TEST>,<TEST>...] to the image
+  -a, --arch ARCH      The image architecture.
+  -d, --debug          Enable debug output (set -x).
+  -e, --keep           Keep image file after a build failure.
+  -f, --force          Force the creation of an image.
+  -s, --series SERIES  Build an image for series SERIES.
+  -t, --tests TEST[,TEST,TEST...]
+                       Add the tests TEST[,TEST,TEST...] to the image.
 EOF
 	exit 2
 }
@@ -23,11 +24,12 @@ EOF
 FORCE=0
 IMAGE=
 
-KT_KEEP=
-KT_SERIES=
-
 while [ $# -gt 0 ] ; do
 	case "${1}" in
+		-a|--arch)
+			shift
+			KT_ARCH=${1}
+			;;
 		-d|--debug)
 			set -x
 			;;

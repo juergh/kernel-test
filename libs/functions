@@ -16,6 +16,17 @@ if [ -z "${KT_SERIES:-}" ] ; then
 	KT_SERIES=$(lsb_release -s -c)
 fi
 
+if [ -z "${KT_ARCH:-}" ] ; then
+	KT_ARCH=$(dpkg-architecture -q DEB_HOST_ARCH)
+fi
+
+if [ -z "${KT_QEMU_CPU:-}" ] ; then
+	case "${KT_ARCH}" in
+		i386) KT_QEMU_CPU=qemu32 ;;
+		*)    KT_QEMU_CPU=qemu64 ;;
+	esac
+fi
+
 DIST="Ubuntu"
 SERIES="${KT_SERIES}"
 COMPS="main,universe"
@@ -238,7 +249,7 @@ function kt_login_image()
 function kt_create_initrd()
 {
 	INITRD_ID=$(md5sum libs/initrd.init | md5sum | awk '{ print $1 }')
-	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${INITRD_ID}.img
+	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${KT_ARCH}-${INITRD_ID}.img
 
 	if [ -e "${KT_INITRD_IMAGE}" ] ; then
 		if [ "${KT_FORCE_INITRD:-0}" -eq 0 ] ; then
@@ -287,7 +298,7 @@ function kt_create_root()
 {
 	local suffix name url
 
-	ROOT_IMAGE=${BUILD_DIR}/root-${KT_SERIES}.img
+	ROOT_IMAGE=${BUILD_DIR}/root-${KT_SERIES}-${KT_ARCH}.img
 
 	if [ -e "${ROOT_IMAGE}" ] ; then
 		if [ "${KT_FORCE_ROOT:-0}" -eq 0 ] ; then
@@ -307,7 +318,7 @@ function kt_create_root()
         suffix="-disk1"
 	fi
 
-	name=${KT_SERIES}-server-cloudimg-amd64${suffix}.img
+	name=${KT_SERIES}-server-cloudimg-${KT_ARCH}${suffix}.img
 	url=https://cloud-images.ubuntu.com/${KT_SERIES}/current/${name}
 	wget --progress=bar:force:noscroll -O "${ROOT_IMAGE}" "${url}"
 
@@ -333,7 +344,7 @@ EOF
 function kt_create_base()
 {
 	BASE_IMAGE_ID=$(md5sum libs/base.init | awk '{ print $1 }')
-	KT_BASE_IMAGE=${BUILD_DIR}/base-${KT_SERIES}-${BASE_IMAGE_ID}.img
+	KT_BASE_IMAGE=${BUILD_DIR}/base-${KT_SERIES}-${KT_ARCH}-${BASE_IMAGE_ID}.img
 
 	if [ -e "${KT_BASE_IMAGE}" ] ; then
 		if [ "${KT_FORCE_BASE:-0}" -eq 0 ] ; then
@@ -411,7 +422,7 @@ function kt_create_test()
 	done
 
 	TEST_ID=$(md5sum "${test_files[*]}" | md5sum | awk '{ print $1 }')
-	KT_TEST_IMAGE=${BUILD_DIR}/test-${TEST_ID}.img
+	KT_TEST_IMAGE=${BUILD_DIR}/test-${KT_ARCH}-${TEST_ID}.img
 
 	if [ -e "${KT_TEST_IMAGE}" ] ; then
 		if [ "${KT_FORCE_TEST:-0}" -eq 0 ] ; then

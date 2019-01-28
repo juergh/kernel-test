@@ -60,6 +60,7 @@ function usage()
 Usage: kernel-test [<options>] -k <KERNEL> -t <TEST>[,<TEST>,<TEST>...]
 
 Available options:
+  -a, --arch <ARCH>         The kernel architecture
   -c, --cmdline <CMDLINE>   Use kernel commandline <CMDLINE> for the tests
   -e, --keep                Keep images after a build failure
   -f, --force               Force a rebuild of all images
@@ -98,6 +99,10 @@ QEMU_CMDLINE=()
 # Parse the commandline arguments
 while [ $# -gt 0 ] ; do
 	case "${1}" in
+		-a|--arch)
+			shift
+			KT_ARCH=${1}
+			;;
 		-c|--cmdline)
 			shift
 			QEMU_CMDLINE+=(${1})
@@ -143,7 +148,6 @@ while [ $# -gt 0 ] ; do
 					die "Invalid gdb debugger option: ${1}"
 					;;
 			esac
-
 			;;
 		-h|--help)
 			usage
@@ -224,7 +228,7 @@ trap out EXIT INT TERM HUP
 	# Run the test(s)
 	qemu-system-x86_64 \
 		-machine accel=kvm \
-		-cpu "${KT_QEMU_CPU:-qemu64}" \
+		-cpu "${KT_QEMU_CPU}" \
 		-smp "${KT_QEMU_SMP:-1}" \
 		-m "${KT_QEMU_MEM:-1024}" \
 		-kernel "${KT_KERNEL}" \
