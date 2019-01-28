@@ -18,29 +18,29 @@ function out()
 		for TEST in ${KT_TESTS} ; do
 			if grep "TEST RESULT: ${TEST} " "${LOG_FILE}" | \
 					grep -q PASS  ; then
-				passed+=(${TEST})
+				passed+=("${TEST}")
 			else
-				failed+=(${TEST})
+				failed+=("${TEST}")
 			fi
 		done
 
 		# List the tests that passed
 		if [ "${#passed[@]}" -gt 0 ] ; then
-			echo -e "\e[92m+++ Tests that passed: ${passed[*]}\e[0m"
+			echo -e "\\e[92m+++ Tests that passed: ${passed[*]}\\e[0m"
 		fi
 
 		# List the tests that failed
 		if [ "${#failed[@]}" -gt 0 ] ; then
-			echo -e "\e[91m+++ Tests that failed: ${failed[*]}\e[0m" >&2
+			echo -e "\\e[91m+++ Tests that failed: ${failed[*]}\\e[0m" >&2
 			rc=1
 		fi
 	fi
 
 	# Print the overall test result
 	if [ ${rc} -eq 0 ] ; then
-		echo -e "\e[92m+++ SUCCESS: Tests passed\e[0m"
+		echo -e "\\e[92m+++ SUCCESS: Tests passed\\e[0m"
 	else
-		echo -e "\e[91m+++ FAILURE: Tests failed\e[0m" >&2
+		echo -e "\\e[91m+++ FAILURE: Tests failed\\e[0m" >&2
 	fi
 
 	exit ${rc}
@@ -49,7 +49,7 @@ function out()
 
 function die()
 {
-	echo -e "\e[91m+++ ERROR: ${*}\e[0m" >&2
+	echo -e "\\e[91m+++ ERROR: ${*}\\e[0m" >&2
 	exit 1
 }
 
@@ -102,7 +102,7 @@ while [ $# -gt 0 ] ; do
 			;;
 		-c|--cmdline)
 			shift
-			QEMU_CMDLINE+=(${1})
+			QEMU_CMDLINE+=("${1}")
 			;;
 		-e|--keep)
 			# shellcheck disable=SC2034

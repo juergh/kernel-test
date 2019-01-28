@@ -43,10 +43,6 @@ while [ $# -gt 0 ] ; do
 			shift
 			KT_KERNEL=${1}
 			;;
-		-a|--arc)
-			shift
-			break
-			;;
 		*)
 			if [ -z "${KT_SERIES}" ] ; then
 				KT_SERIES=${1}

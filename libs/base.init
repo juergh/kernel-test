@@ -4,9 +4,9 @@ function print_info()
 {
 	if [ "${1:-}" = "-n" ] ; then
 		shift
-		echo -n -e "\e[33m${*}\e[0m"
+		echo -n -e "\\e[33m${*}\\e[0m"
 	else
-		echo -e "\e[33m${*}\e[0m"
+		echo -e "\\e[33m${*}\\e[0m"
 	fi
 }
 
@@ -79,9 +79,9 @@ function run_test()
 
 	test_begin=$(date +%s)
 
-	test_result="\e[92mPASS\e[0m"
+	test_result="\\e[92mPASS\\e[0m"
 	cd "/test/" && eval "./${test_name}.test" || \
-			test_result="\e[91mFAIL\e[0m"
+			test_result="\\e[91mFAIL\\e[0m"
 
 	test_end=$(date +%s)
 

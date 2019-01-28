@@ -27,26 +27,26 @@ if [ -z "${KT_QEMU_CPU:-}" ] ; then
 	esac
 fi
 
-DIST="Ubuntu"
-SERIES="${KT_SERIES}"
-COMPS="main,universe"
+# DIST="Ubuntu"
+# SERIES="${KT_SERIES}"
+#COMPS="main,universe"
 ROOT_FS="ext4"
 MKFS_OPTS=()
 
 case "${KT_SERIES}" in
-	wheezy|stretch|buster)
-		DIST="Debian"
-		SERIES="${KT_SERIES}"
-		COMPS="main,contrib"
-		;;
+#	wheezy|stretch|buster)
+#		DIST="Debian"
+#		SERIES="${KT_SERIES}"
+#		COMPS="main,contrib"
+#		;;
 	wheezy+ext3)
-		DIST="Debian"
-		SERIES="wheezy"
-		COMPS="main,contrib"
+#		DIST="Debian"
+#		SERIES="wheezy"
+#		COMPS="main,contrib"
 		ROOT_FS="ext3"
 		;;
 	precise)
-		MKFS_OPTS=("-O" "^metadata_csum")
+		MKFS_OPTS=("features:^metadata_csum")
 		;;
 	*)
 		;;
@@ -440,7 +440,7 @@ function kt_create_test()
 add "${KT_TEST_IMAGE}"
 run
 part-disk /dev/sda mbr
-mkfs "${ROOT_FS}" /dev/sda1
+mkfs "${ROOT_FS}" /dev/sda1 ${MKFS_OPTS[@]}
 set-label /dev/sda1 test
 EOF
 
