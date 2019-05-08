@@ -248,7 +248,7 @@ function kt_login_image()
 
 function kt_create_initrd()
 {
-	INITRD_ID=$(md5sum libs/initrd.init | md5sum | awk '{ print $1 }')
+	INITRD_ID=$(md5sum lib/initrd.init | md5sum | awk '{ print $1 }')
 	KT_INITRD_IMAGE=${BUILD_DIR}/initrd-${KT_SERIES}-${KT_ARCH}-${INITRD_ID}.img
 
 	if [ -e "${KT_INITRD_IMAGE}" ] ; then
@@ -283,7 +283,7 @@ function kt_create_initrd()
 	echo "initrd-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
 
 	# Copy the initrd init and customize it
-	cp libs/initrd.init "${IMAGE_MOUNT}/init"
+	cp lib/initrd.init "${IMAGE_MOUNT}/init"
 	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${IMAGE_MOUNT}/init"
 
 	# Unmount the initrd image
@@ -343,7 +343,7 @@ EOF
 
 function kt_create_base()
 {
-	BASE_IMAGE_ID=$(md5sum libs/base.init | awk '{ print $1 }')
+	BASE_IMAGE_ID=$(md5sum lib/base.init | awk '{ print $1 }')
 	KT_BASE_IMAGE=${BUILD_DIR}/base-${KT_SERIES}-${KT_ARCH}-${BASE_IMAGE_ID}.img
 
 	if [ -e "${KT_BASE_IMAGE}" ] ; then
@@ -378,7 +378,7 @@ EOF
 	echo "base-image" > "${IMAGE_MOUNT}/etc/debian_chroot"
 
 	# Install the initrd
-	cp libs/base.init "${IMAGE_MOUNT}/init"
+	cp lib/base.init "${IMAGE_MOUNT}/init"
 	sed -i -e "s/__ROOT_FS__/${ROOT_FS}/" "${IMAGE_MOUNT}/init"
 
 	# Pre-seed and install kexec-tools

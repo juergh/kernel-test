@@ -186,7 +186,7 @@ if [ -z "${KT_KERNEL:-}" ] || [ -z "${KT_TESTS:-}" ] ; then
 fi
 
 # shellcheck disable=SC1091
-. libs/functions
+. lib/functions
 
 LOG_DIR=logs
 LOG_FILE=${LOG_DIR}/${KT_SERIES}.log
